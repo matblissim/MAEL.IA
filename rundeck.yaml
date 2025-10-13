@@ -1,0 +1,68 @@
+- name: MAEL.IA — run app.py
+  group: mael
+  description: "Exécute app.py depuis GitHub avec clé GCP (Key Storage)"
+  loglevel: INFO
+  executionEnabled: true
+  nodeFilterEditable: false
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+      - scriptInterpreter: /bin/bash
+        interpreterArgsQuoted: false
+        fileExtension: .sh
+        script: |
+          set -eu
+
+          echo "➡️ Clone/Pull"
+          if [ ! -d "MAEL.IA" ]; then
+            git clone "${RD_OPTION_GIT_URL}" MAEL.IA
+          fi
+          cd MAEL.IA
+          git fetch --all || true
+          git checkout "${RD_OPTION_GIT_BRANCH}"
+          git pull --ff-only
+
+          echo "➡️ venv + deps"
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          if [ ! -d ".venv" ]; then $PY -m venv .venv || true; fi
+          . .venv/bin/activate 2>/dev/null || true
+          $PY -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+          echo "➡️ service_account.json depuis Key Storage"
+          printf "%s" "${RD_OPTION_SA_JSON}" > service_account.json
+          export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/service_account.json"
+
+          echo "➡️ .env"
+          : > .env
+          echo "BQ_PROJECT=${RD_OPTION_BQ_PROJECT}" >> .env
+          echo "BQ_LOCATION=${RD_OPTION_BQ_LOCATION}" >> .env
+          echo "BQ_ALLOWED_DATASETS=${RD_OPTION_BQ_ALLOWED_DATASETS}" >> .env
+
+          echo "➡️ run"
+          python app.py
+  options:
+    - name: git_url
+      defaultValue: "https://github.com/matblissim/MAEL.IA"
+      required: true
+      description: "URL du dépôt Git"
+    - name: git_branch
+      defaultValue: "main"
+      required: true
+      description: "Branche Git"
+    - name: BQ_PROJECT
+      defaultValue: "teamdata-291012"
+      required: true
+    - name: BQ_LOCATION
+      defaultValue: "europe-west1"
+      required: true
+    - name: BQ_ALLOWED_DATASETS
+      defaultValue: "sales,inter,user,review"
+      required: true
+    - name: SA_JSON
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Contenu du fichier service_account.json (Key Storage)"
+      storagePath: "keys/service_account.json"
