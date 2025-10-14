@@ -20,22 +20,36 @@ JOIN user.customers c
 
 ---
 
-## 📅 GESTION DES DATES (TRÈS IMPORTANT)
+## 📅 GESTION DES DATES ET HEURES (TRÈS IMPORTANT)
 
-**La date du jour est automatiquement fournie par `CURRENT_DATE()` dans BigQuery**
+**Pour la date :** `CURRENT_DATE('Europe/Paris')` retourne la date à Paris
+**Pour l'heure :** `CURRENT_DATETIME('Europe/Paris')` retourne date + heure à Paris
+**Par défaut BigQuery utilise UTC**, donc TOUJOURS spécifier 'Europe/Paris' pour l'heure française !
 
-### Règles de calcul des dates
-**TOUJOURS utiliser les fonctions SQL dynamiques, JAMAIS de dates en dur !**
+### Règles de calcul des dates et heures
+**TOUJOURS utiliser les fonctions SQL dynamiques avec timezone Paris !**
 
-| Expression utilisateur | SQL à utiliser | Exemple (si aujourd'hui = 14 oct 2025) |
+| Expression utilisateur | SQL à utiliser | Exemple |
 |---|---|---|
-| "aujourd'hui" | `CURRENT_DATE()` | 14 oct 2025 |
-| "hier" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)` | 13 oct 2025 |
-| "ce mois" | `DATE_TRUNC(CURRENT_DATE(), MONTH)` | oct 2025 |
-| "le mois dernier" | `DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), MONTH)` | sept 2025 |
-| "l'année dernière" / "même date année dernière" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)` | 14 oct 2024 |
-| "même jour l'année dernière" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)` | 14 oct 2024 |
-| "il y a 7 jours" | `DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)` | 7 oct 2025 |
+| "quelle heure est-il ?" | `SELECT CURRENT_DATETIME('Europe/Paris')` | 2025-10-14 17:30:45 (heure de Paris) |
+| "aujourd'hui" (date) | `CURRENT_DATE('Europe/Paris')` | 14 oct 2025 |
+| "maintenant" (date + heure Paris) | `CURRENT_DATETIME('Europe/Paris')` | 14 oct 2025 17:30 |
+| "hier à la même heure" | `DATETIME_SUB(CURRENT_DATETIME('Europe/Paris'), INTERVAL 1 DAY)` | 13 oct 2025 17:30 |
+| "il y a 2 heures" | `DATETIME_SUB(CURRENT_DATETIME('Europe/Paris'), INTERVAL 2 HOUR)` | Aujourd'hui 15:30 |
+
+**IMPORTANT :** 
+- Pour l'heure française, TOUJOURS utiliser `'Europe/Paris'`
+- Pour les données business (box_sales, shop_sales), la colonne `date` est déjà en timezone Paris
+- Pour obtenir l'heure actuelle : `SELECT CURRENT_DATETIME('Europe/Paris') as heure_paris`
+
+### Exemples de requêtes avec timezone
+
+**Obtenir l'heure actuelle à Paris :**
+```sql
+SELECT 
+  CURRENT_DATE('Europe/Paris') as date_paris,
+  CURRENT_DATETIME('Europe/Paris') as datetime_paris,
+  FORMAT_DATETIME('%H:%M', CURRENT_DATETIME('Europe/Paris')) as heure_paris
 
 ### Comparaisons temporelles
 Quand l'utilisateur demande une comparaison avec "l'année dernière", il faut comparer :
@@ -43,7 +57,7 @@ Quand l'utilisateur demande une comparaison avec "l'année dernière", il faut c
 - **Ce mois** avec **Même mois année dernière** : comparer les mêmes périodes
 
 ❌ **JAMAIS** mettre de dates fixes comme '2025-10-14' ou '2024-10-13' !
-✅ **TOUJOURS** utiliser `CURRENT_DATE()` et les fonctions SQL dynamiques
+✅ **TOUJOURS** utiliser `CURRENT_DATE()`  `CURRENT_DATETIME()`et les fonctions SQL dynamiques
 
 ---
 
