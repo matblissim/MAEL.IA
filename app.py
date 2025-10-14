@@ -2,6 +2,8 @@ import os
 import re
 import json
 import time
+import sys
+import os
 from pathlib import Path
 from collections import OrderedDict
 from typing import Optional, Dict, Any, List
@@ -12,6 +14,9 @@ from anthropic import Anthropic, APIError
 from google.cloud import bigquery
 from notion_client import Client as NotionClient
 
+
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 # ---------- .env ----------
 load_dotenv(Path(__file__).with_name(".env"))
 
@@ -514,12 +519,19 @@ def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
         return "❌ Notion non configuré."
     
     try:
+        print(f"🔨 Tentative création page '{title}' dans {parent_id}")
+        
+        # Limiter le contenu à 2000 caractères pour éviter les timeouts
+        if len(content) > 2000:
+            content = content[:2000] + "\n\n... (contenu tronqué)"
+            print(f"⚠️ Contenu tronqué à 2000 caractères")
+        
         # Préparer les blocs de contenu
         children = []
         if content:
             # Découper le contenu en paragraphes
             paragraphs = content.split('\n\n')
-            for para in paragraphs:
+            for para in paragraphs[:20]:  # Max 20 paragraphes
                 if para.strip():
                     children.append({
                         "object": "block",
@@ -527,10 +539,12 @@ def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
                         "paragraph": {
                             "rich_text": [{
                                 "type": "text",
-                                "text": {"content": para.strip()}
+                                "text": {"content": para.strip()[:2000]}  # Max 2000 chars par bloc
                             }]
                         }
                     })
+        
+        print(f"📝 Création avec {len(children)} blocs...")
         
         # Créer la page
         new_page = notion_client.pages.create(
@@ -538,12 +552,14 @@ def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
             properties={
                 "title": {
                     "title": [{
-                        "text": {"content": title}
+                        "text": {"content": title[:100]}  # Limiter le titre
                     }]
                 }
             },
             children=children if children else []
         )
+        
+        print(f"✅ Page créée : {new_page['url']}")
         
         return json.dumps({
             "success": True,
@@ -553,7 +569,9 @@ def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
         }, ensure_ascii=False, indent=2)
         
     except Exception as e:
-        return f"❌ Erreur création page: {str(e)}"
+        error_msg = str(e)
+        print(f"❌ Erreur création page: {error_msg}")
+        return f"❌ Erreur création page: {error_msg[:500]}"
 
 
 def append_to_notion_page(page_id: str, content: str) -> str:
@@ -691,6 +709,28 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         )
     elif tool_name == "read_notion_page":
         return read_notion_page(tool_input["page_id"])
+    elif tool_name == "create_notion_page":
+        return create_notion_page(
+            tool_input["parent_id"],
+            tool_input["title"],
+            tool_input.get("content", "")
+        )
+    elif tool_name == "append_to_notion_page":
+        return append_to_notion_page(
+            tool_input["page_id"],
+            tool_input["content"]
+        )
+    elif tool_name == "create_database_entry":
+        return create_database_entry(
+            tool_input["database_id"],
+            tool_input["properties"]
+        )
+    elif tool_name == "update_notion_page":
+        return update_notion_page(
+            tool_input["page_id"],
+            tool_input.get("properties"),
+            tool_input.get("content")
+        )
     else:
         return f"❌ Tool inconnu: {tool_name}"
 
