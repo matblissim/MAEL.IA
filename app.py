@@ -959,10 +959,28 @@ if __name__ == "__main__":
     print(f"Slack OK: bot_user={at.get('user')} team={at.get('team')}")
     
     services = []
+    
+    # Test BigQuery
     if bq_client:
-        services.append("BigQuery ✅")
+        try:
+            # Test simple de connexion
+            list(bq_client.list_datasets(max_results=1))
+            services.append("BigQuery ✅")
+        except Exception as e:
+            print(f"⚠️  BigQuery configuré mais erreur de connexion: {e}")
+            bq_client = None
+    
+    # Test Notion
     if notion_client:
-        services.append("Notion ✅")
+        try:
+            # Test simple de connexion - chercher 1 page
+            test = notion_client.search(page_size=1)
+            services.append("Notion ✅")
+            print(f"✅ Notion connecté - {len(test.get('results', []))} page(s) accessible(s)")
+        except Exception as e:
+            print(f"⚠️  Notion configuré mais erreur de connexion: {e}")
+            print(f"   Vérifie que ta clé API est valide et que l'intégration a accès à des pages")
+            notion_client = None
     
     if services:
         print(f"⚡️ Mael prêt avec Claude + {' + '.join(services)}")
