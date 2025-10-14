@@ -1,6 +1,6 @@
 - name: MAEL.IA — run app.py
   group: mael
-  description: "Exécute app.py depuis GitHub avec clé GCP (Key Storage)"
+  description: "Exécute app.py depuis GitHub avec clés GCP + API via Key Storage"
   loglevel: INFO
   executionEnabled: true
   nodeFilterEditable: false
@@ -15,18 +15,18 @@
           set -eu
 
           echo "➡️ Clone/Pull"
-          if [ ! -d "MAEL.IA" ]; then
+          if [ ! -d "MAEL.IA/.git" ]; then
             git clone "${RD_OPTION_GIT_URL}" MAEL.IA
           fi
           cd MAEL.IA
           git fetch --all || true
           git checkout "${RD_OPTION_GIT_BRANCH}"
-          git pull --ff-only
+          git pull --ff-only || true
 
           echo "➡️ venv + deps"
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           if [ ! -d ".venv" ]; then $PY -m venv .venv || true; fi
-          . .venv/bin/activate 2>/dev/null || true
+          . .venv/bin/activate
           $PY -m pip install --upgrade pip
           pip install -r requirements.txt
 
@@ -34,23 +34,26 @@
           printf "%s" "${RD_OPTION_SA_JSON}" > service_account.json
           export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/service_account.json"
 
-          echo "➡️ .env"
+          echo "➡️ Génération du .env"
           : > .env
           echo "BQ_PROJECT=${RD_OPTION_BQ_PROJECT}" >> .env
           echo "BQ_LOCATION=${RD_OPTION_BQ_LOCATION}" >> .env
           echo "BQ_ALLOWED_DATASETS=${RD_OPTION_BQ_ALLOWED_DATASETS}" >> .env
+          echo "OPENAI_API_KEY=${RD_OPTION_OPENAI_API_KEY}" >> .env
+          echo "ANTHROPIC_API_KEY=${RD_OPTION_ANTHROPIC_API_KEY}" >> .env
+          echo "SLACK_APP_TOKEN=${RD_OPTION_SLACK_APP_TOKEN}" >> .env
+          echo "SLACK_BOT_TOKEN=${RD_OPTION_SLACK_BOT_TOKEN}" >> .env
 
-          echo "➡️ run"
+          echo "➡️ Lancement de l’application"
           python app.py
   options:
     - name: git_url
       defaultValue: "https://github.com/matblissim/MAEL.IA"
       required: true
-      description: "URL du dépôt Git"
     - name: git_branch
       defaultValue: "main"
       required: true
-      description: "Branche Git"
+
     - name: BQ_PROJECT
       defaultValue: "teamdata-291012"
       required: true
@@ -60,9 +63,40 @@
     - name: BQ_ALLOWED_DATASETS
       defaultValue: "sales,inter,user,review"
       required: true
+
+    # GCP Service Account
     - name: SA_JSON
       required: true
       secure: true
       valueExposed: false
-      description: "Contenu du fichier service_account.json (Key Storage)"
+      description: "Clé GCP service account"
       storagePath: "keys/service_account.json"
+
+    # API Keys (ton organisation actuelle)
+    - name: OPENAI_API_KEY
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé OpenAI"
+      storagePath: "keys/OPENAI_API_KEY"
+
+    - name: ANTHROPIC_API_KEY
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé Anthropic"
+      storagePath: "keys/ANTHROPIC_API_KEY"
+
+    - name: SLACK_APP_TOKEN
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé Slack App"
+      storagePath: "keys/SLACK_APP_TOKEN"
+
+    - name: SLACK_BOT_TOKEN
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé Slack Bot"
+      storagePath: "keys/SLACK_BOT_TOKEN"

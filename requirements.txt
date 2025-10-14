@@ -1,3 +1,4 @@
 mcp
 google-cloud-bigquery
 python-dotenv
+slack-bolt>=1.18.0
