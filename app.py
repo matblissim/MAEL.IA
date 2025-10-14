@@ -27,6 +27,70 @@ if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
     bq_client = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID"))
 
 # ---------- Charger le contexte ----------
+def parse_dbt_manifest_inline(manifest_path: str, schemas_filter: List[str] = None) -> str:
+    """Parse le manifest DBT et retourne la doc en markdown"""
+    try:
+        with open(manifest_path, 'r') as f:
+            manifest = json.load(f)
+        
+        output = ["# Documentation DBT (auto-générée)\n\n"]
+        
+        # Filtrer les modèles
+        all_models = {k: v for k, v in manifest.get('nodes', {}).items() 
+                      if k.startswith('model.')}
+        
+        if schemas_filter:
+            models = {}
+            for k, v in all_models.items():
+                schema = v.get('schema', '').lower()
+                if any(filter_schema.lower() in schema for filter_schema in schemas_filter):
+                    models[k] = v
+        else:
+            models = all_models
+        
+        if not models:
+            return ""
+        
+        # Grouper par schéma
+        schemas = {}
+        for model_key, model_data in models.items():
+            schema = model_data.get('schema', 'unknown')
+            if schema not in schemas:
+                schemas[schema] = []
+            schemas[schema].append(model_data)
+        
+        # Générer la doc
+        for schema_name, schema_models in sorted(schemas.items()):
+            output.append(f"## Schéma `{schema_name}` ({len(schema_models)} modèles)\n\n")
+            
+            for model in sorted(schema_models, key=lambda x: x.get('name', '')):
+                model_name = model.get('name', 'unknown')
+                description = model.get('description', '')
+                
+                if description:  # Seulement si description existe
+                    output.append(f"### `{schema_name}.{model_name}`\n")
+                    output.append(f"{description}\n\n")
+                    
+                    # Colonnes avec description
+                    columns = model.get('columns', {})
+                    cols_with_desc = {k: v for k, v in columns.items() if v.get('description')}
+                    
+                    if cols_with_desc:
+                        output.append("**Colonnes principales :**\n")
+                        for col_name, col_data in sorted(cols_with_desc.items()):
+                            col_desc = col_data.get('description', '').replace('\n', ' ')
+                            output.append(f"- `{col_name}` : {col_desc}\n")
+                        output.append("\n")
+        
+        return ''.join(output)
+        
+    except FileNotFoundError:
+        print(f"⚠️  Manifest DBT non trouvé : {manifest_path}")
+        return ""
+    except Exception as e:
+        print(f"⚠️  Erreur parsing DBT : {e}")
+        return ""
+
 def load_context() -> str:
     """Charge tous les fichiers de contexte disponibles"""
     context_parts = []
@@ -44,12 +108,20 @@ def load_context() -> str:
         context_parts.append(periscope_file.read_text(encoding="utf-8"))
         print(f"📊 periscope_queries.md chargé")
     
-    # 3. Documentation DBT (optionnel)
-    dbt_file = Path(__file__).with_name("dbt_context.md")
-    if dbt_file.exists():
-        context_parts.append("\n\n# DOCUMENTATION DBT DU MODÈLE DE DONNÉES\n\n")
-        context_parts.append(dbt_file.read_text(encoding="utf-8"))
-        print(f"🔷 dbt_context.md chargé")
+    # 3. Documentation DBT DYNAMIQUE depuis manifest
+    dbt_manifest_path = os.getenv("DBT_MANIFEST_PATH", "/path/to/dbt/target/manifest.json")
+    dbt_schemas = os.getenv("DBT_SCHEMAS", "sales,user,inter").split(',')
+    
+    if Path(dbt_manifest_path).exists():
+        print(f"🔷 Parsing manifest DBT : {dbt_manifest_path}")
+        dbt_doc = parse_dbt_manifest_inline(dbt_manifest_path, dbt_schemas)
+        if dbt_doc:
+            context_parts.append("\n\n# DOCUMENTATION DBT (AUTO-GÉNÉRÉE)\n\n")
+            context_parts.append(dbt_doc)
+            print(f"🔷 Doc DBT générée ({len(dbt_doc)} caractères)")
+    else:
+        print(f"⚠️  Manifest DBT non trouvé : {dbt_manifest_path}")
+        print("   Pour activer : définir DBT_MANIFEST_PATH dans .env")
     
     return ''.join(context_parts)
 
