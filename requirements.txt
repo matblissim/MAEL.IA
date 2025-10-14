@@ -4,3 +4,4 @@ python-dotenv
 slack-bolt>=1.18.0
 anthropic>=0.30.0
 openai>=1.0.0
+notion-client>=2.0.0
