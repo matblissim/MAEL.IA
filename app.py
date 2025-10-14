@@ -69,7 +69,13 @@ IMPORTANT - Formatage Slack :
 - Pour l'italique, utilise _underscore_ : _texte en italique_
 - Pour les listes à puces, utilise • ou - 
 - Les blocs de code SQL restent avec ```sql
-- N'utilise JAMAIS **double astérisque** (ça ne marche pas dans Slack)"""
+- N'utilise JAMAIS **double astérisque** (ça ne marche pas dans Slack)
+
+CRITIQUE - Dates :
+- Tu n'as PAS de date actuelle fixe
+- TOUJOURS utiliser CURRENT_DATE() dans tes requêtes SQL pour obtenir la date réelle du jour
+- JAMAIS de dates en dur comme '2025-10-11' ou '2025-10-14'
+- Si l'utilisateur demande "aujourd'hui", "hier", "ce mois" → utilise CURRENT_DATE() et les fonctions SQL dynamiques"""
     
     if CONTEXT:
         return f"{base_prompt}\n\n{CONTEXT}"
