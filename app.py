@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from collections import OrderedDict
 from typing import Optional, Dict, Any, List
-from datetime import datetime
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -59,7 +58,7 @@ def parse_dbt_manifest_inline(manifest_path: str, schemas_filter: List[str] = No
                 schemas[schema] = []
             schemas[schema].append(model_data)
         
-        # Générer la doc
+        # Générer la doc (seulement les modèles avec description)
         for schema_name, schema_models in sorted(schemas.items()):
             output.append(f"## Schéma `{schema_name}` ({len(schema_models)} modèles)\n\n")
             
@@ -109,19 +108,21 @@ def load_context() -> str:
         print(f"📊 periscope_queries.md chargé")
     
     # 3. Documentation DBT DYNAMIQUE depuis manifest
-    dbt_manifest_path = os.getenv("DBT_MANIFEST_PATH", "/path/to/dbt/target/manifest.json")
-    dbt_schemas = os.getenv("DBT_SCHEMAS", "sales,user,inter").split(',')
+    dbt_manifest_path = os.getenv("DBT_MANIFEST_PATH", "")
+    dbt_schemas_str = os.getenv("DBT_SCHEMAS", "sales,user,inter")
+    dbt_schemas = [s.strip() for s in dbt_schemas_str.split(',') if s.strip()]
     
-    if Path(dbt_manifest_path).exists():
+    if dbt_manifest_path and Path(dbt_manifest_path).exists():
         print(f"🔷 Parsing manifest DBT : {dbt_manifest_path}")
         dbt_doc = parse_dbt_manifest_inline(dbt_manifest_path, dbt_schemas)
         if dbt_doc:
             context_parts.append("\n\n# DOCUMENTATION DBT (AUTO-GÉNÉRÉE)\n\n")
             context_parts.append(dbt_doc)
             print(f"🔷 Doc DBT générée ({len(dbt_doc)} caractères)")
-    else:
+    elif dbt_manifest_path:
         print(f"⚠️  Manifest DBT non trouvé : {dbt_manifest_path}")
-        print("   Pour activer : définir DBT_MANIFEST_PATH dans .env")
+    else:
+        print("ℹ️  DBT non configuré (DBT_MANIFEST_PATH non défini)")
     
     return ''.join(context_parts)
 
@@ -145,7 +146,8 @@ IMPORTANT - Formatage Slack :
 
 CRITIQUE - Dates :
 - Tu n'as PAS de date actuelle fixe
-- TOUJOURS utiliser CURRENT_DATE() dans tes requêtes SQL pour obtenir la date réelle du jour
+- TOUJOURS utiliser CURRENT_DATE('Europe/Paris') dans tes requêtes SQL pour obtenir la date réelle du jour
+- Pour l'heure : CURRENT_DATETIME('Europe/Paris')
 - JAMAIS de dates en dur comme '2025-10-11' ou '2025-10-14'
 - Si l'utilisateur demande "aujourd'hui", "hier", "ce mois" → utilise CURRENT_DATE() et les fonctions SQL dynamiques"""
     
@@ -459,7 +461,7 @@ def on_app_mention(body, event, client, logger):
         if not prompt:
             prompt = "Dis bonjour (très bref) avec une micro-blague."
 
-        logger.info(f"🔵 Question reçue: {prompt[:100]}...")
+        logger.info(f"🔵 @mention reçue: {prompt[:100]}...")
         
         answer = ask_claude(prompt, thread_ts)
         
@@ -471,7 +473,7 @@ def on_app_mention(body, event, client, logger):
         client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
         ACTIVE_THREADS.add(thread_ts)
         
-        logger.info(f"✅ Réponse envoyée")
+        logger.info(f"✅ Réponse envoyée (thread ajouté aux actifs)")
         
     except Exception as e:
         logger.exception(f"❌ Erreur dans on_app_mention: {e}")
@@ -479,7 +481,7 @@ def on_app_mention(body, event, client, logger):
             client.chat_postMessage(
                 channel=event["channel"],
                 thread_ts=event.get("thread_ts", event["ts"]),
-                text=f"⚠️ Oups, j'ai eu un problème technique : `{str(e)[:200]}`\nRéessaye ou reformule ta question !"
+                text=f"⚠️ Oups, j'ai eu un problème technique : `{str(e)[:200]}`"
             )
         except:
             pass
@@ -488,32 +490,37 @@ def on_app_mention(body, event, client, logger):
 @app.event("message")
 def on_message(event, client, logger):
     try:
-        logger.info(f"📨 Message reçu : {event.get('text', '')[:50]}...")
+        # Log TOUS les messages reçus
+        logger.info(f"📨 Message reçu : '{event.get('text', '')[:50]}...' channel={event.get('channel')} thread={event.get('thread_ts', 'NO_THREAD')}")
         
+        # Ignorer les messages avec subtype (bot messages, etc.)
         if event.get("subtype"):
             logger.info(f"   ⏭️  Ignoré (subtype: {event.get('subtype')})")
             return
-            
+        
+        # Doit être dans un thread
         if "thread_ts" not in event:
             logger.info("   ⏭️  Ignoré (pas dans un thread)")
             return
 
         thread_ts = event["thread_ts"]
-        
-        if thread_ts not in ACTIVE_THREADS:
-            logger.info(f"   ⏭️  Ignoré (thread {thread_ts[:8]}... pas actif)")
-            logger.info(f"   Threads actifs : {list(ACTIVE_THREADS)[:3]}...")
-            return
-
         channel = event["channel"]
         user = event.get("user", "")
         text = event.get("text", "").strip()
 
-        if user == get_bot_user_id():
+        # Ignorer nos propres messages
+        bot_id = get_bot_user_id()
+        if user == bot_id:
             logger.info("   ⏭️  Ignoré (c'est moi)")
             return
 
-        logger.info(f"💬 Traitement message dans thread actif...")
+        # Vérifier si thread actif
+        if thread_ts not in ACTIVE_THREADS:
+            logger.info(f"   ⏭️  Ignoré (thread {thread_ts[:10]}... pas dans ACTIVE_THREADS)")
+            logger.info(f"   ℹ️  Threads actifs actuellement: {len(ACTIVE_THREADS)} threads")
+            return
+
+        logger.info(f"💬 Traitement message dans thread actif {thread_ts[:10]}...")
         
         answer = ask_claude(text, thread_ts)
         
@@ -530,7 +537,7 @@ def on_message(event, client, logger):
         logger.exception(f"❌ Erreur dans on_message: {e}")
         try:
             client.chat_postMessage(
-                channel=event["channel"],
+                channel=event.get("channel"),
                 thread_ts=event.get("thread_ts"),
                 text=f"⚠️ Erreur : `{str(e)[:200]}`"
             )
@@ -553,5 +560,6 @@ if __name__ == "__main__":
     print(f"   Total : {len(CONTEXT)} caractères\n")
     
     print("🧠 Mémoire de conversation activée par thread")
+    print(f"🔍 Mode debug : logs détaillés activés\n")
     
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
