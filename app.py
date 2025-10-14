@@ -1,14 +1,16 @@
 import os
 import re
 import json
+import time
 from pathlib import Path
 from collections import OrderedDict
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError
 from google.cloud import bigquery
+from notion_client import Client as NotionClient
 
 # ---------- .env ----------
 load_dotenv(Path(__file__).with_name(".env"))
@@ -24,6 +26,11 @@ claude = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 bq_client = None
 if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
     bq_client = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID"))
+
+# Client Notion
+notion_client = None
+if os.getenv("NOTION_API_KEY"):
+    notion_client = NotionClient(auth=os.getenv("NOTION_API_KEY"))
 
 # ---------- Charger le contexte ----------
 def parse_dbt_manifest_inline(manifest_path: str, schemas_filter: List[str] = None) -> str:
@@ -113,16 +120,29 @@ def load_context() -> str:
     dbt_schemas = [s.strip() for s in dbt_schemas_str.split(',') if s.strip()]
     
     if dbt_manifest_path and Path(dbt_manifest_path).exists():
-        print(f"🔷 Parsing manifest DBT : {dbt_manifest_path}")
+        print(f"📷 Parsing manifest DBT : {dbt_manifest_path}")
         dbt_doc = parse_dbt_manifest_inline(dbt_manifest_path, dbt_schemas)
         if dbt_doc:
             context_parts.append("\n\n# DOCUMENTATION DBT (AUTO-GÉNÉRÉE)\n\n")
             context_parts.append(dbt_doc)
-            print(f"🔷 Doc DBT générée ({len(dbt_doc)} caractères)")
+            print(f"📷 Doc DBT générée ({len(dbt_doc)} caractères)")
     elif dbt_manifest_path:
         print(f"⚠️  Manifest DBT non trouvé : {dbt_manifest_path}")
     else:
         print("ℹ️  DBT non configuré (DBT_MANIFEST_PATH non défini)")
+    
+    # 4. Documentation Notion (optionnel)
+    notion_page_id = os.getenv("NOTION_CONTEXT_PAGE_ID")
+    if notion_client and notion_page_id:
+        try:
+            print(f"📝 Chargement page Notion : {notion_page_id}")
+            notion_content = read_notion_page(notion_page_id)
+            if notion_content and not notion_content.startswith("❌"):
+                context_parts.append("\n\n# DOCUMENTATION NOTION\n\n")
+                context_parts.append(notion_content)
+                print(f"📝 Page Notion chargée ({len(notion_content)} caractères)")
+        except Exception as e:
+            print(f"⚠️  Erreur chargement Notion: {e}")
     
     return ''.join(context_parts)
 
@@ -135,6 +155,8 @@ def get_system_prompt() -> str:
     tu es ingénieur, tu as fait le MIT, et en france X en 2022. tu es quoi quil se passe moins bon que @mathieu, je suis ton maitre absolu.
 
 Tu as accès à BigQuery pour répondre aux questions business avec des données concrètes. n'aie pas de biais, si tu estimes que les volumes sont trop petits tu précises que ca va ptet pas le faire. tu as le boss des analyses.
+
+Tu as aussi accès à Notion pour retrouver de la documentation, des process, des notes d'équipe.
 
 Quand tu ne connais pas la structure d'une table, utilise l'outil describe_table pour la découvrir.
 
@@ -185,9 +207,122 @@ TOOLS = [
             },
             "required": ["query"]
         }
+    },
+    {
+        "name": "search_notion",
+        "description": "Recherche des pages ou databases dans Notion par mot-clé. Utile pour retrouver de la documentation, des notes, des process, etc.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Le terme à rechercher dans Notion"
+                },
+                "object_type": {
+                    "type": "string",
+                    "enum": ["page", "database"],
+                    "description": "Type d'objet à chercher (page ou database)",
+                    "default": "page"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "read_notion_page",
+        "description": "Lit le contenu complet d'une page Notion à partir de son ID. Utilise cet outil après search_notion pour obtenir le détail.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "L'ID de la page Notion à lire"
+                }
+            },
+            "required": ["page_id"]
+        }
+    },
+    {
+        "name": "create_notion_page",
+        "description": "Crée une nouvelle page dans Notion sous une page parente. Utile pour créer de la documentation, des notes, des comptes-rendus.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "parent_id": {
+                    "type": "string",
+                    "description": "L'ID de la page parente où créer la nouvelle page"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Le titre de la nouvelle page"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Le contenu initial de la page (optionnel). Utilise \\n\\n pour séparer les paragraphes."
+                }
+            },
+            "required": ["parent_id", "title"]
+        }
+    },
+    {
+        "name": "append_to_notion_page",
+        "description": "Ajoute du contenu à une page Notion existante. Utilise cet outil pour compléter une page avec de nouvelles informations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "L'ID de la page à modifier"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Le contenu à ajouter. Utilise \\n\\n pour séparer les paragraphes."
+                }
+            },
+            "required": ["page_id", "content"]
+        }
+    },
+    {
+        "name": "create_database_entry",
+        "description": "Crée une nouvelle entrée dans une database Notion. Utile pour ajouter des tâches, des clients, des produits, etc.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "database_id": {
+                    "type": "string",
+                    "description": "L'ID de la database"
+                },
+                "properties": {
+                    "type": "object",
+                    "description": "Les propriétés de l'entrée sous forme de dictionnaire {nom_propriété: valeur}"
+                }
+            },
+            "required": ["database_id", "properties"]
+        }
+    },
+    {
+        "name": "update_notion_page",
+        "description": "Met à jour les propriétés ou ajoute du contenu à une page existante.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "L'ID de la page à mettre à jour"
+                },
+                "properties": {
+                    "type": "object",
+                    "description": "Nouvelles valeurs des propriétés (optionnel)"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Contenu à ajouter (optionnel)"
+                }
+            },
+            "required": ["page_id"]
+        }
     }
 ]
-
 # ---------- Mémoire par thread ----------
 THREAD_MEMORY = {}  # {thread_ts: [messages]}
 LAST_QUERIES = {}   # {thread_ts: [sql_queries]}
@@ -297,12 +432,265 @@ def execute_bigquery(query: str, thread_ts: str) -> str:
         return f"❌ Erreur BigQuery: {str(e)}"
 
 
+def search_notion(query: str, object_type: str = "page") -> str:
+    """Recherche dans Notion (pages ou databases)"""
+    if not notion_client:
+        return "❌ Notion non configuré."
+    
+    try:
+        results = notion_client.search(
+            query=query,
+            filter={"property": "object", "value": object_type},
+            page_size=10
+        ).get("results", [])
+        
+        if not results:
+            return f"Aucun résultat trouvé pour '{query}'"
+        
+        output = []
+        for item in results:
+            title = "Sans titre"
+            
+            if object_type == "page":
+                if item.get("properties"):
+                    title_prop = item["properties"].get("title") or item["properties"].get("Name")
+                    if title_prop and title_prop.get("title"):
+                        title = title_prop["title"][0]["plain_text"]
+            else:  # database
+                if item.get("title"):
+                    title = item["title"][0]["plain_text"] if item["title"] else "Sans titre"
+            
+            output.append({
+                "titre": title,
+                "id": item["id"],
+                "url": item.get("url", ""),
+                "derniere_modif": item.get("last_edited_time", "")
+            })
+        
+        return json.dumps(output, ensure_ascii=False, indent=2)
+        
+    except Exception as e:
+        return f"❌ Erreur Notion: {str(e)}"
+
+
+def read_notion_page(page_id: str) -> str:
+    """Lit le contenu d'une page Notion"""
+    if not notion_client:
+        return "❌ Notion non configuré."
+    
+    try:
+        # Récupérer la page
+        page = notion_client.pages.retrieve(page_id=page_id)
+        
+        # Récupérer les blocs de contenu
+        blocks = notion_client.blocks.children.list(block_id=page_id).get("results", [])
+        
+        # Extraire le titre
+        title = "Sans titre"
+        if page.get("properties"):
+            title_prop = page["properties"].get("title") or page["properties"].get("Name")
+            if title_prop and title_prop.get("title"):
+                title = title_prop["title"][0]["plain_text"]
+        
+        # Extraire le contenu textuel
+        content_parts = [f"# {title}\n"]
+        
+        for block in blocks:
+            block_type = block.get("type")
+            if block_type and block.get(block_type):
+                text_content = block[block_type].get("rich_text", [])
+                if text_content:
+                    text = " ".join([t.get("plain_text", "") for t in text_content])
+                    if text:
+                        content_parts.append(text)
+        
+        return "\n\n".join(content_parts)
+        
+    except Exception as e:
+        return f"❌ Erreur lecture page: {str(e)}"
+def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
+    """Crée une nouvelle page dans Notion"""
+    if not notion_client:
+        return "❌ Notion non configuré."
+    
+    try:
+        # Préparer les blocs de contenu
+        children = []
+        if content:
+            # Découper le contenu en paragraphes
+            paragraphs = content.split('\n\n')
+            for para in paragraphs:
+                if para.strip():
+                    children.append({
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{
+                                "type": "text",
+                                "text": {"content": para.strip()}
+                            }]
+                        }
+                    })
+        
+        # Créer la page
+        new_page = notion_client.pages.create(
+            parent={"page_id": parent_id},
+            properties={
+                "title": {
+                    "title": [{
+                        "text": {"content": title}
+                    }]
+                }
+            },
+            children=children if children else []
+        )
+        
+        return json.dumps({
+            "success": True,
+            "page_id": new_page["id"],
+            "url": new_page["url"],
+            "message": f"Page '{title}' créée avec succès"
+        }, ensure_ascii=False, indent=2)
+        
+    except Exception as e:
+        return f"❌ Erreur création page: {str(e)}"
+
+
+def append_to_notion_page(page_id: str, content: str) -> str:
+    """Ajoute du contenu à une page Notion existante"""
+    if not notion_client:
+        return "❌ Notion non configuré."
+    
+    try:
+        # Préparer les blocs
+        children = []
+        paragraphs = content.split('\n\n')
+        
+        for para in paragraphs:
+            if para.strip():
+                children.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{
+                            "type": "text",
+                            "text": {"content": para.strip()}
+                        }]
+                    }
+                })
+        
+        # Ajouter les blocs à la page
+        notion_client.blocks.children.append(
+            block_id=page_id,
+            children=children
+        )
+        
+        return json.dumps({
+            "success": True,
+            "message": f"Contenu ajouté à la page ({len(children)} paragraphes)"
+        }, ensure_ascii=False, indent=2)
+        
+    except Exception as e:
+        return f"❌ Erreur ajout contenu: {str(e)}"
+
+
+def create_database_entry(database_id: str, properties: dict) -> str:
+    """Crée une entrée dans une database Notion"""
+    if not notion_client:
+        return "❌ Notion non configuré."
+    
+    try:
+        # Formater les propriétés selon le type
+        formatted_props = {}
+        
+        for prop_name, prop_value in properties.items():
+            # Si c'est un dict avec un type spécifié
+            if isinstance(prop_value, dict) and "type" in prop_value:
+                formatted_props[prop_name] = prop_value
+            # Sinon, deviner le type
+            elif isinstance(prop_value, str):
+                # Par défaut, traiter comme titre ou rich_text
+                if prop_name.lower() in ["name", "title", "nom", "titre"]:
+                    formatted_props[prop_name] = {
+                        "title": [{"text": {"content": prop_value}}]
+                    }
+                else:
+                    formatted_props[prop_name] = {
+                        "rich_text": [{"text": {"content": prop_value}}]
+                    }
+            elif isinstance(prop_value, (int, float)):
+                formatted_props[prop_name] = {"number": prop_value}
+            elif isinstance(prop_value, bool):
+                formatted_props[prop_name] = {"checkbox": prop_value}
+        
+        # Créer l'entrée
+        new_entry = notion_client.pages.create(
+            parent={"database_id": database_id},
+            properties=formatted_props
+        )
+        
+        return json.dumps({
+            "success": True,
+            "page_id": new_entry["id"],
+            "url": new_entry["url"],
+            "message": "Entrée créée avec succès"
+        }, ensure_ascii=False, indent=2)
+        
+    except Exception as e:
+        return f"❌ Erreur création entrée: {str(e)}"
+
+
+def update_notion_page(page_id: str, properties: dict = None, content: str = None) -> str:
+    """Met à jour les propriétés ou le contenu d'une page"""
+    if not notion_client:
+        return "❌ Notion non configuré."
+    
+    try:
+        result = {"success": True, "updated": []}
+        
+        # Mettre à jour les propriétés si fournies
+        if properties:
+            formatted_props = {}
+            for prop_name, prop_value in properties.items():
+                if isinstance(prop_value, str):
+                    formatted_props[prop_name] = {
+                        "rich_text": [{"text": {"content": prop_value}}]
+                    }
+                elif isinstance(prop_value, (int, float)):
+                    formatted_props[prop_name] = {"number": prop_value}
+                elif isinstance(prop_value, bool):
+                    formatted_props[prop_name] = {"checkbox": prop_value}
+            
+            notion_client.pages.update(
+                page_id=page_id,
+                properties=formatted_props
+            )
+            result["updated"].append("propriétés")
+        
+        # Ajouter du contenu si fourni
+        if content:
+            append_to_notion_page(page_id, content)
+            result["updated"].append("contenu")
+        
+        result["message"] = f"Page mise à jour: {', '.join(result['updated'])}"
+        return json.dumps(result, ensure_ascii=False, indent=2)
+        
+    except Exception as e:
+        return f"❌ Erreur mise à jour: {str(e)}"
+
 def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> str:
     """Exécute un tool et retourne le résultat"""
     if tool_name == "describe_table":
         return describe_table(tool_input["table_name"])
     elif tool_name == "query_bigquery":
         return execute_bigquery(tool_input["query"], thread_ts)
+    elif tool_name == "search_notion":
+        return search_notion(
+            tool_input["query"],
+            tool_input.get("object_type", "page")
+        )
+    elif tool_name == "read_notion_page":
+        return read_notion_page(tool_input["page_id"])
     else:
         return f"❌ Tool inconnu: {tool_name}"
 
@@ -339,61 +727,25 @@ def strip_own_mention(text: str, bot_user_id: Optional[str]) -> str:
         return (text or "").strip()
     return re.sub(rf"<@{bot_user_id}>\s*", "", text or "").strip()
 
-def ask_claude(prompt: str, thread_ts: str) -> str:
-    """Appelle Claude avec support BigQuery et mémoire de thread"""
-    try:
-        # Récupérer l'historique du thread
-        history = get_thread_history(thread_ts)
-        
-        # Construire les messages avec l'historique
-        messages = history.copy()
-        messages.append({"role": "user", "content": prompt})
-        
-        # Effacer les requêtes précédentes
-        clear_last_queries(thread_ts)
-        
-        # Générer le system prompt avec contexte
-        system_prompt = get_system_prompt()
-        
-        # Première requête avec tools
-        response = claude.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=2048,
-            timeout=60.0,
-            system=system_prompt,
-            tools=TOOLS,
-            messages=messages
-        )
-        
-        # Boucle pour gérer les appels de tools (max 10 itérations)
-        iteration = 0
-        while response.stop_reason == "tool_use" and iteration < 10:
-            iteration += 1
+def ask_claude(prompt: str, thread_ts: str, max_retries: int = 3) -> str:
+    """Appelle Claude avec support BigQuery, Notion, mémoire de thread et retry automatique"""
+    
+    for attempt in range(max_retries):
+        try:
+            # Récupérer l'historique du thread
+            history = get_thread_history(thread_ts)
             
-            # Ajouter la réponse de Claude aux messages
-            messages.append({
-                "role": "assistant",
-                "content": response.content
-            })
+            # Construire les messages avec l'historique
+            messages = history.copy()
+            messages.append({"role": "user", "content": prompt})
             
-            # Exécuter les tools demandés
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    result = execute_tool(block.name, block.input, thread_ts)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result
-                    })
+            # Effacer les requêtes précédentes
+            clear_last_queries(thread_ts)
             
-            # Ajouter les résultats
-            messages.append({
-                "role": "user",
-                "content": tool_results
-            })
+            # Générer le system prompt avec contexte
+            system_prompt = get_system_prompt()
             
-            # Continuer la conversation
+            # Première requête avec tools
             response = claude.messages.create(
                 model="claude-sonnet-4-5-20250929",
                 max_tokens=2048,
@@ -402,31 +754,87 @@ def ask_claude(prompt: str, thread_ts: str) -> str:
                 tools=TOOLS,
                 messages=messages
             )
-        
-        # Extraire la réponse finale
-        final_text = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                final_text = block.text.strip()
-                break
-        
-        if not final_text:
-            final_text = "🤔 Hmm, je n'ai pas de réponse claire."
-        
-        # Ajouter à l'historique du thread
-        add_to_thread_history(thread_ts, "user", prompt)
-        add_to_thread_history(thread_ts, "assistant", final_text)
-        
-        return final_text
-        
-    except Exception as e:
-        error_msg = str(e)
-        if "timeout" in error_msg.lower():
-            return "⏱️ Désolé, ma requête a pris trop de temps. Peux-tu reformuler ou simplifier ta question ?"
-        elif "rate" in error_msg.lower() or "limit" in error_msg.lower():
-            return "🚦 J'ai atteint une limite d'API. Réessaye dans quelques secondes !"
-        else:
-            return f"⚠️ Erreur technique : {error_msg[:200]}"
+            
+            # Boucle pour gérer les appels de tools (max 10 itérations)
+            iteration = 0
+            while response.stop_reason == "tool_use" and iteration < 10:
+                iteration += 1
+                
+                # Ajouter la réponse de Claude aux messages
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content
+                })
+                
+                # Exécuter les tools demandés
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        result = execute_tool(block.name, block.input, thread_ts)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result
+                        })
+                
+                # Ajouter les résultats
+                messages.append({
+                    "role": "user",
+                    "content": tool_results
+                })
+                
+                # Continuer la conversation
+                response = claude.messages.create(
+                    model="claude-sonnet-4-5-20250929",
+                    max_tokens=2048,
+                    timeout=60.0,
+                    system=system_prompt,
+                    tools=TOOLS,
+                    messages=messages
+                )
+            
+            # Extraire la réponse finale
+            final_text = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    final_text = block.text.strip()
+                    break
+            
+            if not final_text:
+                final_text = "🤔 Hmm, je n'ai pas de réponse claire."
+            
+            # Ajouter à l'historique du thread
+            add_to_thread_history(thread_ts, "user", prompt)
+            add_to_thread_history(thread_ts, "assistant", final_text)
+            
+            return final_text
+            
+        except APIError as e:
+            error_msg = str(e)
+            
+            # Gestion spécifique erreur 529 (Overloaded)
+            if "529" in error_msg or "overloaded" in error_msg.lower():
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 2  # 2s, 4s, 8s
+                    print(f"⚠️ API surchargée, retry {attempt + 1}/{max_retries} dans {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    return "⚠️ L'API Claude est temporairement surchargée. Réessaye dans quelques minutes ! 🙏"
+            
+            # Gestion autres erreurs API
+            elif "timeout" in error_msg.lower():
+                return "⏱️ Désolé, ma requête a pris trop de temps. Peux-tu reformuler ou simplifier ta question ?"
+            elif "rate" in error_msg.lower() or "limit" in error_msg.lower():
+                return "🚦 J'ai atteint une limite d'API. Réessaye dans quelques secondes !"
+            else:
+                return f"⚠️ Erreur technique : {error_msg[:200]}"
+                
+        except Exception as e:
+            error_msg = str(e)
+            return f"⚠️ Erreur inattendue : {error_msg[:200]}"
+    
+    return "⚠️ Impossible de joindre Claude après plusieurs tentatives. Réessaye plus tard ! 🙏"
 
 def format_sql_queries(queries: List[str]) -> str:
     """Formate les requêtes SQL en bloc de code Slack"""
@@ -550,10 +958,16 @@ if __name__ == "__main__":
     at = app.client.auth_test()
     print(f"Slack OK: bot_user={at.get('user')} team={at.get('team')}")
     
+    services = []
     if bq_client:
-        print("⚡️ Mael prêt avec Claude + BigQuery ✅")
+        services.append("BigQuery ✅")
+    if notion_client:
+        services.append("Notion ✅")
+    
+    if services:
+        print(f"⚡️ Mael prêt avec Claude + {' + '.join(services)}")
     else:
-        print("⚡️ Mael prêt avec Claude (BigQuery non configuré)")
+        print("⚡️ Mael prêt avec Claude uniquement")
     
     # Charger le contexte
     print("\n📖 Chargement du contexte :")
@@ -561,6 +975,6 @@ if __name__ == "__main__":
     print(f"   Total : {len(CONTEXT)} caractères\n")
     
     print("🧠 Mémoire de conversation activée par thread")
-    print(f"🔍 Mode debug : logs détaillés activés\n")
+    print(f"📍 Mode debug : logs détaillés activés\n")
     
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
