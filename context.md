@@ -22,27 +22,28 @@ JOIN user.customers c
 
 ## 📅 GESTION DES DATES (TRÈS IMPORTANT)
 
-**Date actuelle : 11 octobre 2025**
+**La date du jour est automatiquement fournie par `CURRENT_DATE()` dans BigQuery**
 
 ### Règles de calcul des dates
 **TOUJOURS utiliser les fonctions SQL dynamiques, JAMAIS de dates en dur !**
 
-| Expression utilisateur | SQL à utiliser | Exemple |
+| Expression utilisateur | SQL à utiliser | Exemple (si aujourd'hui = 14 oct 2025) |
 |---|---|---|
-| "aujourd'hui" | `CURRENT_DATE()` | 11 oct 2025 |
-| "hier" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)` | 10 oct 2025 |
+| "aujourd'hui" | `CURRENT_DATE()` | 14 oct 2025 |
+| "hier" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)` | 13 oct 2025 |
 | "ce mois" | `DATE_TRUNC(CURRENT_DATE(), MONTH)` | oct 2025 |
 | "le mois dernier" | `DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), MONTH)` | sept 2025 |
-| "l'année dernière" / "même date 2024" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)` | 11 oct 2024 |
-| "même jour l'année dernière" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)` | 11 oct 2024 |
-| "il y a 7 jours" | `DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)` | 4 oct 2025 |
+| "l'année dernière" / "même date année dernière" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)` | 14 oct 2024 |
+| "même jour l'année dernière" | `DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)` | 14 oct 2024 |
+| "il y a 7 jours" | `DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)` | 7 oct 2025 |
 
 ### Comparaisons temporelles
 Quand l'utilisateur demande une comparaison avec "l'année dernière", il faut comparer :
-- **Hier (10 oct 2025)** avec **Même jour année dernière (10 oct 2024)**
-- **Ce mois (oct 2025)** avec **Même mois année dernière (oct 2024)**
+- **Hier** avec **Même jour année dernière** : utiliser `DATE_SUB(DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), INTERVAL 1 YEAR)`
+- **Ce mois** avec **Même mois année dernière** : comparer les mêmes périodes
 
-❌ **JAMAIS** comparer "10 oct 2025" avec "8 jan 2024" ou des dates aléatoires !
+❌ **JAMAIS** mettre de dates fixes comme '2025-10-14' ou '2024-10-13' !
+✅ **TOUJOURS** utiliser `CURRENT_DATE()` et les fonctions SQL dynamiques
 
 ---
 
@@ -286,9 +287,10 @@ Somme des `net_Revenue` dans `sales.shop_sales`
 ## Notes Importantes
 
 - Les données sont mises à jour toutes les 30mn
-- **Date actuelle : 11 octobre 2025**
-- **"Hier" = 10 octobre 2025 = `DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)`**
-- **"Même jour l'année dernière" = 10 octobre 2024 = `DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)`**
+- **Toujours utiliser `CURRENT_DATE()` pour obtenir la date du jour automatiquement**
+- **"Hier" = `DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)`**
+- **"Même jour l'année dernière" = `DATE_SUB(CURRENT_DATE(), INTERVAL 1 YEAR)`**
+- **Ne JAMAIS mettre de dates en dur** (ex: '2025-10-11'), toujours utiliser les fonctions SQL dynamiques
 - Toujours privilégier `dw_country_code` pour les pays
 - Le churn se calcule sur `box_sales` uniquement (pas sur `shop_sales`)
 - Les jointures se font sur `user_key` (pas sur customer_id)
@@ -299,5 +301,4 @@ Somme des `net_Revenue` dans `sales.shop_sales`
 - **box_sales** est par mois sur le champ `date`
 - **box_sales** a aussi `payment_date` pour le détail jour par jour (on paie le mois d'avant, monthly = 14 du mois d'avant)
 - **Acquis/Acquiz** : utiliser `acquis_status_lvl1` et `acquis_status_lvl2` (filtrer avec `acquis_status_lvl1 <> 'LIVE'`)
-- la table inter.coupons, permet de donner pas mal d'infos sur les codes. sub_offer cest comme des coupons mais pour les gens déja abonnés. dans box_sales on a que des codes parents.
 - **TOUJOURS utiliser les fonctions SQL de date (CURRENT_DATE, DATE_SUB, INTERVAL) plutôt que des dates en dur**
