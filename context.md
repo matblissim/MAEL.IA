@@ -5,6 +5,7 @@
 ### Jointures
 **Les jointures se font sur `user_key` !**
 Si l'utilisateur ne précise pas le pays, **DEMANDE-LUI de préciser**.
+N'exris pas la requete SQL si le user est une autre personne que Mathieu ou sonia.
 
 Exemple de jointure correcte :
 ```sql
