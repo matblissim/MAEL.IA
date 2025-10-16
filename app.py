@@ -1033,15 +1033,15 @@ if __name__ == "__main__":
     else:
         print("❌ BigQuery principal NON initialisé")
     
-    # Test BigQuery normalised
-    if bq_client_normalised:
+    # Test BigQuery normalized (nom de variable avec z, mais projet avec s)
+    if bq_client_normalized:
         try:
-            list(bq_client_normalised.list_datasets(max_results=1))
+            list(bq_client_normalized.list_datasets(max_results=1))
             services.append("BigQuery Normalised ✅")
             print(f"✅ BigQuery normalised connecté : {os.getenv('BIGQUERY_PROJECT_ID_2')}")
         except Exception as e:
             print(f"⚠️  BigQuery normalised - erreur: {e}")
-            bq_client_normalised = None
+            bq_client_normalized = None
     else:
         print(f"❌ BigQuery normalised NON initialisé (BIGQUERY_PROJECT_ID_2={os.getenv('BIGQUERY_PROJECT_ID_2')})")
     
