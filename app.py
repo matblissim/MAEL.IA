@@ -957,10 +957,11 @@ def on_app_mention(body, event, client, logger):
         
         answer = ask_claude(prompt, thread_ts)
         
-        # Ajouter les requêtes SQL à la fin
-        queries = get_last_queries(thread_ts)
-        if queries:
-            answer += format_sql_queries(queries)
+        # Ajouter les requêtes SQL seulement si demandé
+        if any(keyword in prompt.lower() for keyword in ["sql", "requête", "requete", "query"]):
+            queries = get_last_queries(thread_ts)
+            if queries:
+                answer += format_sql_queries(queries)
         
         client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
         ACTIVE_THREADS.add(thread_ts)
@@ -1016,10 +1017,11 @@ def on_message(event, client, logger):
         
         answer = ask_claude(text, thread_ts)
         
-        # Ajouter les requêtes SQL à la fin
-        queries = get_last_queries(thread_ts)
-        if queries:
-            answer += format_sql_queries(queries)
+        # Ajouter les requêtes SQL seulement si demandé
+        if any(keyword in text.lower() for keyword in ["sql", "requête", "requete", "query"]):
+            queries = get_last_queries(thread_ts)
+            if queries:
+                answer += format_sql_queries(queries)
         
         client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
         
