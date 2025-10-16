@@ -725,7 +725,7 @@ def update_notion_page(page_id: str, properties: dict = None, content: str = Non
         return f"❌ Erreur mise à jour: {str(e)}"
 
 def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> str:
-     """Exécute un tool et retourne le résultat"""
+    """Exécute un tool et retourne le résultat"""
     if tool_name == "describe_table":
         return describe_table(tool_input["table_name"])
     elif tool_name == "query_bigquery":
