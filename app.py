@@ -29,8 +29,13 @@ claude = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 # Client BigQuery
 bq_client = None
+bq_client_normalized = None  # Nouveau client pour l'autre projet
 if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
     bq_client = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID"))
+
+    # Deuxième projet
+    if os.getenv("BIGQUERY_PROJECT_ID_2"):
+        bq_client_normalized = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID_2"))
 
 # Client Notion
 notion_client = None
@@ -200,19 +205,25 @@ TOOLS = [
         }
     },
     {
-        "name": "query_bigquery",
-        "description": "Exécute une requête SQL sur BigQuery pour obtenir des données business (ventes, clients, analytics, metrics, etc.)",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "La requête SQL à exécuter sur BigQuery"
-                }
+    "name": "query_bigquery",
+    "description": "Exécute une requête SQL sur BigQuery pour obtenir des données business. Par défaut interroge teamdata-291012, utilise 'normalized' pour interroger normalsed-417010.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "La requête SQL à exécuter sur BigQuery"
             },
-            "required": ["query"]
-        }
-    },
+            "project": {
+                "type": "string",
+                "enum": ["default", "normalized"],
+                "description": "Quel projet utiliser : 'default' pour teamdata-291012 ou 'normalized' pour normalsed-417010",
+                "default": "default"
+            }
+        },
+        "required": ["query"]
+    }
+},
     {
         "name": "search_notion",
         "description": "Recherche des pages ou databases dans Notion par mot-clé. Utile pour retrouver de la documentation, des notes, des process, etc.",
@@ -415,23 +426,29 @@ def describe_table(table_name: str) -> str:
         return f"❌ Erreur describe_table: {str(e)}"
 
 
-def execute_bigquery(query: str, thread_ts: str) -> str:
+def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> str:
     """Exécute une requête BigQuery"""
-    if not bq_client:
-        return "❌ BigQuery non configuré."
+    
+    # Choisir le bon client
+    if project == "normalized":
+        client = bq_client_normalized
+        if not client:
+            return "❌ Projet normalized non configuré."
+    else:
+        client = bq_client
+        if not client:
+            return "❌ BigQuery non configuré."
     
     try:
-        # Enregistrer la requête pour l'afficher plus tard
         add_query_to_thread(thread_ts, query)
         
-        query_job = bq_client.query(query)
+        query_job = client.query(query)
         results = query_job.result()
         rows = [dict(row) for row in results]
         
         if not rows:
             return "Aucun résultat trouvé."
         
-        # Limite à 50 lignes pour ne pas surcharger
         return json.dumps(rows[:50], default=str, ensure_ascii=False, indent=2)
     except Exception as e:
         return f"❌ Erreur BigQuery: {str(e)}"
@@ -701,7 +718,11 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
     if tool_name == "describe_table":
         return describe_table(tool_input["table_name"])
     elif tool_name == "query_bigquery":
-        return execute_bigquery(tool_input["query"], thread_ts)
+        return execute_bigquery(
+            tool_input["query"], 
+            thread_ts,
+            tool_input.get("project", "default")  # Nouveau paramètre
+        )
     elif tool_name == "search_notion":
         return search_notion(
             tool_input["query"],
