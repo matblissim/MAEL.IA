@@ -253,13 +253,13 @@ TOOLS = [
     },
     {
         "name": "query_crm",
-        "description": "Exécute une requête SQL sur la table CRM dans le projet normalised-417010. UNIQUEMENT pour la table crm.Export_imagino_extract (emails reçus/envoyés, interactions clients via Imagino). Utilise cet outil pour toutes les questions sur les emails et la communication client.",
+        "description": "Exécute une requête SQL sur la table CRM dans le projet normalised-417010. UNIQUEMENT pour la table crm.crm_data_detailed_by_user (emails reçus/envoyés, interactions clients via Imagino). Utilise cet outil pour toutes les questions sur les emails et la communication client.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "La requête SQL à exécuter sur crm.Export_imagino_extract"
+                    "description": "La requête SQL à exécuter sur crm.crm_data_detailed_by_user"
                 }
             },
             "required": ["query"]
