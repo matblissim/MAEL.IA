@@ -204,9 +204,9 @@ TOOLS = [
             "required": ["table_name"]
         }
     },
-    {
+{
     "name": "query_bigquery",
-    "description": "Exécute une requête SQL sur BigQuery pour obtenir des données business. Par défaut interroge teamdata-291012, utilise 'normalized' pour interroger normalsed-417010.",
+    "description": "Exécute une requête SQL sur BigQuery pour obtenir des données business. Par défaut interroge teamdata-291012, utilise 'normalized' pour interroger normalised-417010.",  # ← Corrige ici aussi
     "input_schema": {
         "type": "object",
         "properties": {
@@ -217,7 +217,7 @@ TOOLS = [
             "project": {
                 "type": "string",
                 "enum": ["default", "normalized"],
-                "description": "Quel projet utiliser : 'default' pour teamdata-291012 ou 'normalized' pour normalsed-417010",
+                "description": "Quel projet utiliser : 'default' pour teamdata-291012 ou 'normalized' pour normalised-417010",  # ← Et ici
                 "default": "default"
             }
         },
