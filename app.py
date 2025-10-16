@@ -1033,7 +1033,7 @@ if __name__ == "__main__":
     else:
         print("❌ BigQuery principal NON initialisé")
     
-    # Test BigQuery normalized (nom de variable avec z, mais projet avec s)
+    # Test BigQuery normalized
     if bq_client_normalized:
         try:
             list(bq_client_normalized.list_datasets(max_results=1))
@@ -1059,3 +1059,13 @@ if __name__ == "__main__":
         print(f"⚡️ Mael prêt avec Claude + {' + '.join(services)}")
     else:
         print("⚡️ Mael prêt avec Claude uniquement")
+    
+    # Charger le contexte
+    print("\n📖 Chargement du contexte :")
+    CONTEXT = load_context()
+    print(f"   Total : {len(CONTEXT)} caractères\n")
+    
+    print("🧠 Mémoire de conversation activée par thread")
+    print(f"📍 Mode debug : logs détaillés activés\n")
+    
+    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
