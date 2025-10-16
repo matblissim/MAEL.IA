@@ -207,26 +207,34 @@ TOOLS = [
             "required": ["table_name"]
         }
     },
-{
-    "name": "query_bigquery",
-    "description": "Exécute une requête SQL sur BigQuery pour obtenir des données business. Par défaut interroge teamdata-291012, utilise 'normalized' pour interroger normalised-417010.",  # ← Corrige ici aussi
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "La requête SQL à exécuter sur BigQuery"
+    {
+        "name": "query_bigquery",
+        "description": "Exécute une requête SQL sur BigQuery dans le projet teamdata-291012. Pour les tables sales.*, user.*, inter.*",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "La requête SQL à exécuter sur BigQuery"
+                }
             },
-            "project": {
-                "type": "string",
-                "enum": ["default", "normalized"],
-                "description": "Quel projet utiliser : 'default' pour teamdata-291012 ou 'normalized' pour normalised-417010",  # ← Et ici
-                "default": "default"
-            }
-        },
-        "required": ["query"]
-    }
-},
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "query_reviews",
+        "description": "Exécute une requête SQL sur la table REVIEWS dans le projet normalised-417010. UNIQUEMENT pour la table reviews.reviews_by_user. Utilise cet outil pour toutes les questions sur les avis clients.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "La requête SQL à exécuter sur reviews.reviews_by_user"
+                }
+            },
+            "required": ["query"]
+        }
+    },
     {
         "name": "search_notion",
         "description": "Recherche des pages ou databases dans Notion par mot-clé. Utile pour retrouver de la documentation, des notes, des process, etc.",
@@ -717,15 +725,13 @@ def update_notion_page(page_id: str, properties: dict = None, content: str = Non
         return f"❌ Erreur mise à jour: {str(e)}"
 
 def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> str:
-    """Exécute un tool et retourne le résultat"""
+     """Exécute un tool et retourne le résultat"""
     if tool_name == "describe_table":
         return describe_table(tool_input["table_name"])
     elif tool_name == "query_bigquery":
-        return execute_bigquery(
-            tool_input["query"], 
-            thread_ts,
-            tool_input.get("project", "default")  # Nouveau paramètre
-        )
+        return execute_bigquery(tool_input["query"], thread_ts, "default")
+    elif tool_name == "query_reviews":
+        return execute_bigquery(tool_input["query"], thread_ts, "normalized")
     elif tool_name == "search_notion":
         return search_notion(
             tool_input["query"],
