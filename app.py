@@ -173,14 +173,17 @@ Tu as DEUX outils différents pour interroger BigQuery :
 1. query_bigquery → Pour teamdata-291012 (sales.*, user.*, inter.*)
 2. query_reviews → Pour normalised-417010 (reviews.reviews_by_user)
 
-⚠️ RÈGLE ABSOLUE : Dès que tu vois "review", "avis", "reviews_by_user" dans la question :
-→ Utilise l'outil query_reviews (PAS query_bigquery !)
+⚠️ RÈGLE ABSOLUE : 
+- "review" / "avis" → query_reviews
+- "email" / "message" / "crm" / "communication" → query_crm
+- Tout le reste (ventes, clients, box) → query_bigquery
 
 Exemples :
 - "Combien de ventes ?" → query_bigquery
 - "Combien de reviews ?" → query_reviews
-- "Les avis de Mathieu" → query_reviews
-- "Mes reviews" → query_reviews
+- "Emails reçus ce mois" → query_crm
+- "Messages de mathieu@blissim.fr" → query_crm
+
 
 Tu as aussi accès à Notion pour retrouver de la documentation, des process, des notes d'équipe.
 
@@ -248,6 +251,7 @@ TOOLS = [
             "required": ["query"]
         }
     },
+    
     {
         "name": "search_notion",
         "description": "Recherche des pages ou databases dans Notion par mot-clé. Utile pour retrouver de la documentation, des notes, des process, etc.",
@@ -267,6 +271,19 @@ TOOLS = [
             },
             "required": ["query"]
         }
+    },
+    {
+    "name": "query_crm",
+    "description": "Exécute une requête SQL sur la table CRM dans le projet normalised-417010. UNIQUEMENT pour la table crm.Export_imagino_extract (emails reçus/envoyés, interactions clients via Imagino). Utilise cet outil pour toutes les questions sur les emails et la communication client.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "La requête SQL à exécuter sur crm.Export_imagino_extract"
+            }
+        },
+        "required": ["query"]
     },
     {
         "name": "read_notion_page",
@@ -743,6 +760,8 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         return describe_table(tool_input["table_name"])
     elif tool_name == "query_bigquery":
         return execute_bigquery(tool_input["query"], thread_ts, "default")
+    elif tool_name == "query_crm":
+        return execute_bigquery(tool_input["query"], thread_ts, "normalized")
     elif tool_name == "query_reviews":
         return execute_bigquery(tool_input["query"], thread_ts, "normalized")
     elif tool_name == "search_notion":
