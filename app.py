@@ -1021,39 +1021,41 @@ if __name__ == "__main__":
     
     services = []
     
-    # Test BigQuery
+    # Test BigQuery principal
     if bq_client:
         try:
-            # Test simple de connexion
             list(bq_client.list_datasets(max_results=1))
             services.append("BigQuery ✅")
+            print(f"✅ BigQuery principal connecté : {os.getenv('BIGQUERY_PROJECT_ID')}")
         except Exception as e:
             print(f"⚠️  BigQuery configuré mais erreur de connexion: {e}")
             bq_client = None
+    else:
+        print("❌ BigQuery principal NON initialisé")
+    
+    # Test BigQuery normalised
+    if bq_client_normalised:
+        try:
+            list(bq_client_normalised.list_datasets(max_results=1))
+            services.append("BigQuery Normalised ✅")
+            print(f"✅ BigQuery normalised connecté : {os.getenv('BIGQUERY_PROJECT_ID_2')}")
+        except Exception as e:
+            print(f"⚠️  BigQuery normalised - erreur: {e}")
+            bq_client_normalised = None
+    else:
+        print(f"❌ BigQuery normalised NON initialisé (BIGQUERY_PROJECT_ID_2={os.getenv('BIGQUERY_PROJECT_ID_2')})")
     
     # Test Notion
     if notion_client:
         try:
-            # Test simple de connexion - chercher 1 page
             test = notion_client.search(page_size=1)
             services.append("Notion ✅")
             print(f"✅ Notion connecté - {len(test.get('results', []))} page(s) accessible(s)")
         except Exception as e:
             print(f"⚠️  Notion configuré mais erreur de connexion: {e}")
-            print(f"   Vérifie que ta clé API est valide et que l'intégration a accès à des pages")
             notion_client = None
     
     if services:
         print(f"⚡️ Mael prêt avec Claude + {' + '.join(services)}")
     else:
         print("⚡️ Mael prêt avec Claude uniquement")
-    
-    # Charger le contexte
-    print("\n📖 Chargement du contexte :")
-    CONTEXT = load_context()
-    print(f"   Total : {len(CONTEXT)} caractères\n")
-    
-    print("🧠 Mémoire de conversation activée par thread")
-    print(f"📍 Mode debug : logs détaillés activés\n")
-    
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
