@@ -251,7 +251,20 @@ TOOLS = [
             "required": ["query"]
         }
     },
-    
+    {
+        "name": "query_crm",
+        "description": "Exécute une requête SQL sur la table CRM dans le projet normalised-417010. UNIQUEMENT pour la table crm.Export_imagino_extract (emails reçus/envoyés, interactions clients via Imagino). Utilise cet outil pour toutes les questions sur les emails et la communication client.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "La requête SQL à exécuter sur crm.Export_imagino_extract"
+                }
+            },
+            "required": ["query"]
+        }
+    },  # ← J'ai ajouté l'accolade fermante et la virgule ici
     {
         "name": "search_notion",
         "description": "Recherche des pages ou databases dans Notion par mot-clé. Utile pour retrouver de la documentation, des notes, des process, etc.",
@@ -271,19 +284,6 @@ TOOLS = [
             },
             "required": ["query"]
         }
-    },
-    {
-    "name": "query_crm",
-    "description": "Exécute une requête SQL sur la table CRM dans le projet normalised-417010. UNIQUEMENT pour la table crm.Export_imagino_extract (emails reçus/envoyés, interactions clients via Imagino). Utilise cet outil pour toutes les questions sur les emails et la communication client.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "La requête SQL à exécuter sur crm.Export_imagino_extract"
-            }
-        },
-        "required": ["query"]
     },
     {
         "name": "read_notion_page",
