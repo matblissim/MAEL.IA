@@ -1129,6 +1129,48 @@ if __name__ == "__main__":
     CONTEXT = load_context()
     print(f"   Total : {len(CONTEXT)} caractères\n")
     
+    # 🆕 DEBUG : Aperçu détaillé du contexte
+    print("=" * 80)
+    print("📋 APERÇU DU CONTEXTE CHARGÉ")
+    print("=" * 80)
+    
+    context_lines = CONTEXT.split('\n')
+    print(f"Nombre total de lignes : {len(context_lines)}\n")
+    
+    # Afficher les 30 premières lignes
+    print("🔹 30 premières lignes :")
+    for i, line in enumerate(context_lines[:30], 1):
+        print(f"  {i:3d} | {line[:100]}")
+    
+    if len(context_lines) > 30:
+        print(f"\n  ... ({len(context_lines) - 30} lignes supplémentaires)\n")
+    
+    # Chercher et afficher la section Notion spécifiquement
+    if "# DOCUMENTATION NOTION" in CONTEXT:
+        notion_start = CONTEXT.find("# DOCUMENTATION NOTION")
+        notion_end_marker = CONTEXT.find("\n#", notion_start + 25)  # Chercher le prochain header
+        
+        if notion_end_marker == -1:
+            notion_section = CONTEXT[notion_start:]
+        else:
+            notion_section = CONTEXT[notion_start:notion_end_marker]
+        
+        print("\n🔹 Section DOCUMENTATION NOTION détectée :")
+        print(f"   Position : caractère {notion_start}")
+        print(f"   Longueur : {len(notion_section)} caractères")
+        print(f"   Lignes : {len(notion_section.split(chr(10)))}\n")
+        
+        notion_lines = notion_section.split('\n')[:25]
+        for i, line in enumerate(notion_lines, 1):
+            print(f"  N{i:2d} | {line[:100]}")
+        
+        if len(notion_section.split('\n')) > 25:
+            print(f"\n  ... (+ {len(notion_section.split(chr(10))) - 25} lignes Notion)")
+    else:
+        print("\n⚠️  AUCUNE section '# DOCUMENTATION NOTION' trouvée dans le contexte !")
+    
+    print("\n" + "=" * 80 + "\n")
+    
     print("🧠 Mémoire de conversation activée par thread")
     print(f"📍 Mode debug : logs détaillés activés\n")
     
