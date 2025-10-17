@@ -183,6 +183,7 @@ Exemples :
 - "Combien de reviews ?" → query_reviews
 - "Emails reçus ce mois" → query_crm
 - "Messages de mathieu@blissim.fr" → query_crm
+- l'allocation c'est quand on a un coffret_id. c'est différent du choice_id qui est le choose du produit personnalisé du mois. on parle d'allocation ou de compo ca veut dire j'ai reçu tel coffret_id. 
 
 
 Tu as aussi accès à Notion pour retrouver de la documentation, des process, des notes d'équipe.
