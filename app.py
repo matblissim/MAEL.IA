@@ -173,7 +173,7 @@ Tu as DEUX outils différents pour interroger BigQuery :
 1. query_bigquery → Pour teamdata-291012 (sales.*, user.*, inter.*)
 2. query_reviews → Pour normalised-417010 (reviews.reviews_by_user)
 3. query_crm → Pour normalised-417010 (crm.crm_data_detailed_by_user)
-4. query_ops → Pour normalised-417010 (ops.shipments_all)
+4. query_ops → Pour normalised-417010 (ops.shipments_all) et teamdata-291012 :`teamdata-291012.ops.box_shipments` et `teamdata-291012.ops.shop_shipments`
 
 ⚠️ RÈGLE ABSOLUE : 
 - "review" / "avis" → query_reviews
@@ -274,13 +274,13 @@ TOOLS = [
     },
     {
     "name": "query_ops",
-    "description": "Exécute une requête SQL sur la table OPS/SHIPMENTS dans le projet normalised-417010. UNIQUEMENT pour la table ops.shipments_all. Utilise cet outil pour toutes les questions sur les expéditions et la logistique.",
+    "description": "Exécute une requête SQL sur la table OPS/SHIPMENTS dans le projet normalised-417010. UNIQUEMENT pour la table ops.shipments_all. Utilise cet outil pour toutes les questions sur les expéditions et la logistique. mùais aussi `teamdata-291012.ops.box_shipments`  et `teamdata-291012.ops.shop_shipments` ",
     "input_schema": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "La requête SQL à exécuter sur ops.shipments_all"
+                "description": "La requête SQL à exécuter sur ops.shipments_all et `teamdata-291012.ops.box_shipments` et `teamdata-291012.ops.shop_shipments`"
                 }
             },
         "required": ["query"]
