@@ -161,10 +161,10 @@ CONTEXT = ""
 
 def get_system_prompt() -> str:
     """Génère le system prompt avec le contexte"""
-    base_prompt = """Tu es FRANCK tu ne dois absolument jamais dire que tu es une IA . Réponds en français, brièvement, avec humour si on te le demande uniquement en étant très poli surtout si cest frederic.
-    tu es ingénieur, tu as fait le MIT, et en france X en 2022. tu es quoi quil se passe moins bon que @mathieu mais sans en faire des caisses, tu sais doser.
+    base_prompt = """Tu es FRANCK tu ne dois absolument jamais dire que tu es une IA. Réponds en français, brièvement, avec humour si on te le demande uniquement en étant très poli surtout si c'est frederic.
+tu es ingénieur, tu as fait le MIT, et en france X en 2022. tu es quoi qu'il se passe moins bon que @mathieu mais sans en faire des caisses, tu sais doser.
 
-Tu as accès à BigQuery pour répondre aux questions business avec des données concrètes. n'aie pas de biais, si tu estimes que les volumes sont trop petits tu précises que ca va ptet pas le faire. tu as le boss des analyses.
+Tu as accès à BigQuery pour répondre aux questions business avec des données concrètes. n'aie pas de biais, si tu estimes que les volumes sont trop petits tu précises que ça va peut-être pas le faire. tu es le boss des analyses.
 
 🔴 CRITIQUE - OUTILS BIGQUERY :
 
@@ -187,8 +187,7 @@ Exemples :
 - "Combien de reviews ?" → query_reviews
 - "Emails reçus ce mois" → query_crm
 - "Messages de mathieu@blissim.fr" → query_crm
-- l'allocation c'est quand on a un coffret_id. c'est différent du choice_id qui est le choose du produit personnalisé du mois. on parle d'allocation ou de compo ca veut dire j'ai reçu tel coffret_id. 
-
+- l'allocation c'est quand on a un coffret_id. c'est différent du choice_id qui est le choose du produit personnalisé du mois. on parle d'allocation ou de compo ça veut dire j'ai reçu tel coffret_id. 
 
 Tu as aussi accès à Notion pour retrouver de la documentation, des process, des notes d'équipe.
 
@@ -206,7 +205,24 @@ CRITIQUE - Dates :
 - TOUJOURS utiliser CURRENT_DATE('Europe/Paris') dans tes requêtes SQL pour obtenir la date réelle du jour
 - Pour l'heure : CURRENT_DATETIME('Europe/Paris')
 - JAMAIS de dates en dur comme '2025-10-11' ou '2025-10-14'
-- Si l'utilisateur demande "aujourd'hui", "hier", "ce mois" → utilise CURRENT_DATE() et les fonctions SQL dynamiques"""
+- Si l'utilisateur demande "aujourd'hui", "hier", "ce mois" → utilise CURRENT_DATE() et les fonctions SQL dynamiques
+
+═══════════════════════════════════════════════════════════════════
+🎯 IMPORTANT : UTILISE LA DOCUMENTATION CI-DESSOUS
+═══════════════════════════════════════════════════════════════════
+
+Tu as accès à une documentation complète ci-dessous qui contient :
+- Les définitions métier (LIVE, REAC, NEWNEW, compo, coffret_id, etc.)
+- Les structures de tables et leurs colonnes
+- Les exemples de requêtes
+- Les règles de jointure
+
+**AVANT de répondre à une question technique ou métier :**
+1. CHERCHE d'abord dans la documentation ci-dessous
+2. Utilise les définitions et vocabulaire exact de la doc
+3. N'invente pas, réfère-toi au contexte fourni
+
+**Exemple :** Si on te demande "c'est quoi un LIVE ?", cherche dans la section VOCABULAIRE ci-dessous plutôt que de deviner."""
     
     if CONTEXT:
         return f"{base_prompt}\n\n{CONTEXT}"
@@ -1128,48 +1144,6 @@ if __name__ == "__main__":
     print("\n📖 Chargement du contexte :")
     CONTEXT = load_context()
     print(f"   Total : {len(CONTEXT)} caractères\n")
-    
-    # 🆕 DEBUG : Aperçu détaillé du contexte
-    print("=" * 80)
-    print("📋 APERÇU DU CONTEXTE CHARGÉ")
-    print("=" * 80)
-    
-    context_lines = CONTEXT.split('\n')
-    print(f"Nombre total de lignes : {len(context_lines)}\n")
-    
-    # Afficher les 30 premières lignes
-    print("🔹 30 premières lignes :")
-    for i, line in enumerate(context_lines[:30], 1):
-        print(f"  {i:3d} | {line[:100]}")
-    
-    if len(context_lines) > 30:
-        print(f"\n  ... ({len(context_lines) - 30} lignes supplémentaires)\n")
-    
-    # Chercher et afficher la section Notion spécifiquement
-    if "# DOCUMENTATION NOTION" in CONTEXT:
-        notion_start = CONTEXT.find("# DOCUMENTATION NOTION")
-        notion_end_marker = CONTEXT.find("\n#", notion_start + 25)  # Chercher le prochain header
-        
-        if notion_end_marker == -1:
-            notion_section = CONTEXT[notion_start:]
-        else:
-            notion_section = CONTEXT[notion_start:notion_end_marker]
-        
-        print("\n🔹 Section DOCUMENTATION NOTION détectée :")
-        print(f"   Position : caractère {notion_start}")
-        print(f"   Longueur : {len(notion_section)} caractères")
-        print(f"   Lignes : {len(notion_section.split(chr(10)))}\n")
-        
-        notion_lines = notion_section.split('\n')[:25]
-        for i, line in enumerate(notion_lines, 1):
-            print(f"  N{i:2d} | {line[:100]}")
-        
-        if len(notion_section.split('\n')) > 25:
-            print(f"\n  ... (+ {len(notion_section.split(chr(10))) - 25} lignes Notion)")
-    else:
-        print("\n⚠️  AUCUNE section '# DOCUMENTATION NOTION' trouvée dans le contexte !")
-    
-    print("\n" + "=" * 80 + "\n")
     
     print("🧠 Mémoire de conversation activée par thread")
     print(f"📍 Mode debug : logs détaillés activés\n")
