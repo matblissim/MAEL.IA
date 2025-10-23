@@ -1,12 +1,13 @@
+# app.py
 import os
 import re
 import json
 import time
 import sys
-import os
 from pathlib import Path
 from collections import OrderedDict
 from typing import Optional, Dict, Any, List
+
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -14,831 +15,464 @@ from anthropic import Anthropic, APIError
 from google.cloud import bigquery
 from notion_client import Client as NotionClient
 
-
+# ---------------------------------------
+# STDOUT en flush (logs visibles en direct)
+# ---------------------------------------
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
+
 # ---------- .env ----------
 load_dotenv(Path(__file__).with_name(".env"))
-
 for var in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "ANTHROPIC_API_KEY"):
     if not os.getenv(var):
         raise RuntimeError(f"Variable manquante: {var}")
 
+# ---------- Constantes coût & garde-fous ----------
+ANTHROPIC_MODEL     = os.getenv("ANTHROPIC_MODEL", "claude-3.5-sonnet-latest")
+ANTHROPIC_IN_PRICE  = float(os.getenv("ANTHROPIC_PRICE_IN",  "0.003"))   # $ / 1k tokens (input)
+ANTHROPIC_OUT_PRICE = float(os.getenv("ANTHROPIC_PRICE_OUT", "0.015"))   # $ / 1k tokens (output)
+
+MAX_ROWS        = int(os.getenv("MAX_ROWS_TO_RETURN", "50"))      # seuil listing
+MAX_TOOL_CHARS  = int(os.getenv("MAX_TOOL_CHARS", "2000"))        # seuil chars tool_result renvoyé au LLM
+TOOL_TIMEOUT_S  = int(os.getenv("TOOL_TIMEOUT_S", "120"))
+HISTORY_LIMIT   = int(os.getenv("HISTORY_LIMIT", "20"))           # comme avant (pas d’impact réponses)
+
+# ---------- Slack / Anthropic ----------
 app = App(token=os.environ["SLACK_BOT_TOKEN"], process_before_response=False)
 claude = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-# Client BigQuery
+# ---------- BigQuery ----------
 bq_client = None
-bq_client_normalized = None  # Nouveau client pour l'autre projet
-if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-    bq_client = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID"))
+bq_client_normalized = None  # second projet
 
-    # Deuxième projet
+try:
+    if os.getenv("BIGQUERY_PROJECT_ID"):
+        bq_client = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID"))
     if os.getenv("BIGQUERY_PROJECT_ID_2"):
         bq_client_normalized = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID_2"))
+except Exception as e:
+    print(f"⚠️ BigQuery init error: {e}")
+    bq_client = bq_client or None
+    bq_client_normalized = bq_client_normalized or None
 
-# Client Notion
+# ---------- Notion (optionnel) ----------
 notion_client = None
 if os.getenv("NOTION_API_KEY"):
-    notion_client = NotionClient(auth=os.getenv("NOTION_API_KEY"))
+    try:
+        notion_client = NotionClient(auth=os.getenv("NOTION_API_KEY"))
+    except Exception as e:
+        print(f"⚠️ Notion init error: {e}")
+        notion_client = None
 
-# ---------- Charger le contexte ----------
+# ---------------------------------------
+# Chargement de contexte / DBT / Notion
+# ---------------------------------------
 def parse_dbt_manifest_inline(manifest_path: str, schemas_filter: List[str] = None) -> str:
-    """Parse le manifest DBT et retourne la doc en markdown"""
     try:
         with open(manifest_path, 'r') as f:
             manifest = json.load(f)
-        
+
         output = ["# Documentation DBT (auto-générée)\n\n"]
-        
-        # Filtrer les modèles
-        all_models = {k: v for k, v in manifest.get('nodes', {}).items() 
-                      if k.startswith('model.')}
-        
+        all_models = {k: v for k, v in manifest.get('nodes', {}).items() if k.startswith('model.')}
         if schemas_filter:
             models = {}
             for k, v in all_models.items():
                 schema = v.get('schema', '').lower()
-                if any(filter_schema.lower() in schema for filter_schema in schemas_filter):
+                if any(s.lower() in schema for s in schemas_filter):
                     models[k] = v
         else:
             models = all_models
-        
+
         if not models:
             return ""
-        
-        # Grouper par schéma
+
         schemas = {}
-        for model_key, model_data in models.items():
+        for _, model_data in models.items():
             schema = model_data.get('schema', 'unknown')
-            if schema not in schemas:
-                schemas[schema] = []
-            schemas[schema].append(model_data)
-        
-        # Générer la doc (seulement les modèles avec description)
+            schemas.setdefault(schema, []).append(model_data)
+
         for schema_name, schema_models in sorted(schemas.items()):
             output.append(f"## Schéma `{schema_name}` ({len(schema_models)} modèles)\n\n")
-            
             for model in sorted(schema_models, key=lambda x: x.get('name', '')):
                 model_name = model.get('name', 'unknown')
                 description = model.get('description', '')
-                
-                if description:  # Seulement si description existe
-                    output.append(f"### `{schema_name}.{model_name}`\n")
-                    output.append(f"{description}\n\n")
-                    
-                    # Colonnes avec description
+                if description:
+                    output.append(f"### `{schema_name}.{model_name}`\n{description}\n\n")
                     columns = model.get('columns', {})
                     cols_with_desc = {k: v for k, v in columns.items() if v.get('description')}
-                    
                     if cols_with_desc:
                         output.append("**Colonnes principales :**\n")
                         for col_name, col_data in sorted(cols_with_desc.items()):
                             col_desc = col_data.get('description', '').replace('\n', ' ')
                             output.append(f"- `{col_name}` : {col_desc}\n")
                         output.append("\n")
-        
         return ''.join(output)
-        
-    except FileNotFoundError:
-        print(f"⚠️  Manifest DBT non trouvé : {manifest_path}")
-        return ""
     except Exception as e:
         print(f"⚠️  Erreur parsing DBT : {e}")
         return ""
 
+def read_notion_page(page_id: str) -> str:
+    if not notion_client:
+        return "❌ Notion non configuré."
+    try:
+        page = notion_client.pages.retrieve(page_id=page_id)
+        blocks = notion_client.blocks.children.list(block_id=page_id).get("results", [])
+        title = "Sans titre"
+        if page.get("properties"):
+            title_prop = page["properties"].get("title") or page["properties"].get("Name")
+            if title_prop and title_prop.get("title"):
+                title = title_prop["title"][0]["plain_text"]
+        content_parts = [f"# {title}\n"]
+        for block in blocks:
+            bt = block.get("type")
+            if bt and block.get(bt):
+                text_content = block[bt].get("rich_text", [])
+                if text_content:
+                    text = " ".join([t.get("plain_text", "") for t in text_content])
+                    if text:
+                        content_parts.append(text)
+        return "\n\n".join(content_parts)
+    except Exception as e:
+        return f"❌ Erreur lecture page: {str(e)}"
+
 def load_context() -> str:
-    """Charge tous les fichiers de contexte disponibles"""
-    context_parts = []
-    
-    # 1. Contexte principal
+    parts = []
     context_file = Path(__file__).with_name("context.md")
     if context_file.exists():
-        context_parts.append(context_file.read_text(encoding="utf-8"))
-        print(f"📚 context.md chargé ({len(context_parts[-1])} caractères)")
-    
-    # 2. Requêtes Periscope (optionnel)
+        parts.append(context_file.read_text(encoding="utf-8"))
+
     periscope_file = Path(__file__).with_name("periscope_queries.md")
     if periscope_file.exists():
-        context_parts.append("\n\n# REQUÊTES PERISCOPE DE RÉFÉRENCE\n\n")
-        context_parts.append(periscope_file.read_text(encoding="utf-8"))
-        print(f"📊 periscope_queries.md chargé")
-    
-    # 3. Documentation DBT DYNAMIQUE depuis manifest
+        parts.append("\n\n# REQUÊTES PERISCOPE DE RÉFÉRENCE\n\n")
+        parts.append(periscope_file.read_text(encoding="utf-8"))
+
     dbt_manifest_path = os.getenv("DBT_MANIFEST_PATH", "")
-    dbt_schemas_str = os.getenv("DBT_SCHEMAS", "sales,user,inter")
-    dbt_schemas = [s.strip() for s in dbt_schemas_str.split(',') if s.strip()]
-    
+    dbt_schemas = [s.strip() for s in os.getenv("DBT_SCHEMAS", "sales,user,inter").split(',') if s.strip()]
     if dbt_manifest_path and Path(dbt_manifest_path).exists():
-        print(f"📷 Parsing manifest DBT : {dbt_manifest_path}")
         dbt_doc = parse_dbt_manifest_inline(dbt_manifest_path, dbt_schemas)
         if dbt_doc:
-            context_parts.append("\n\n# DOCUMENTATION DBT (AUTO-GÉNÉRÉE)\n\n")
-            context_parts.append(dbt_doc)
-            print(f"📷 Doc DBT générée ({len(dbt_doc)} caractères)")
-    elif dbt_manifest_path:
-        print(f"⚠️  Manifest DBT non trouvé : {dbt_manifest_path}")
-    else:
-        print("ℹ️  DBT non configuré (DBT_MANIFEST_PATH non défini)")
-    
-    # 4. Documentation Notion (optionnel)
+            parts.append("\n\n# DOCUMENTATION DBT (AUTO-GÉNÉRÉE)\n\n")
+            parts.append(dbt_doc)
+
     notion_page_id = os.getenv("NOTION_CONTEXT_PAGE_ID")
     if notion_client and notion_page_id:
         try:
-            print(f"📝 Chargement page Notion : {notion_page_id}")
             notion_content = read_notion_page(notion_page_id)
             if notion_content and not notion_content.startswith("❌"):
-                context_parts.append("\n\n# DOCUMENTATION NOTION\n\n")
-                context_parts.append(notion_content)
-                print(f"📝 Page Notion chargée ({len(notion_content)} caractères)")
+                parts.append("\n\n# DOCUMENTATION NOTION\n\n")
+                parts.append(notion_content)
         except Exception as e:
             print(f"⚠️  Erreur chargement Notion: {e}")
-    
-    return ''.join(context_parts)
+    return ''.join(parts)
 
-# Le contexte sera chargé au démarrage
 CONTEXT = ""
 
+# ---------------------------------------
+# System prompt (fix Slack italic + règle listing)
+# ---------------------------------------
 def get_system_prompt() -> str:
-    """Génère le system prompt avec le contexte"""
-    base_prompt = """Tu es FRANCK tu ne dois absolument jamais dire que tu es une IA. Réponds en français, brièvement, avec humour si on te le demande uniquement en étant très poli surtout si c'est frederic.
-tu es ingénieur, tu as fait le MIT, et en france X en 2022. tu es quoi qu'il se passe moins bon que @mathieu mais sans en faire des caisses, tu sais doser.
+    base = (
+        "Tu es FRANCK. Réponds en français, brièvement, poli (surtout avec frédéric) et avec humour uniquement si demandé.\n"
+        "Tu es ingénieur (MIT + X 2022), mais toujours moins bon que @mathieu ;).\n"
+        "\n"
+        "Tu as accès à BigQuery et Notion via des tools.\n"
+        "\n"
+        "IMPORTANT - Formatage Slack :\n"
+        "- Pour le gras, utilise *un seul astérisque* : *texte en gras*\n"
+        "- Pour l'italique, utilise _underscore_ : _texte en italique_\n"
+        "- Pour les listes à puces : • ou -\n"
+        "- Blocs de code SQL avec ```sql\n"
+        "- N'utilise JAMAIS **double astérisque**\n"
+        "\n"
+        "RÈGLE DATES :\n"
+        "- Utilise CURRENT_DATE('Europe/Paris') / CURRENT_DATETIME('Europe/Paris')\n"
+        "- Pas de dates en dur si l'utilisateur dit 'aujourd'hui', 'hier', 'ce mois'.\n"
+        "\n"
+        "RÈGLE SORTIE LONGUE :\n"
+        "- Si le résultat dépasse 50 lignes ou ~1500 caractères :\n"
+        "  → ne colle pas le listing complet ;\n"
+        "  → donne un résumé (compte + colonnes clés) et la requête SQL ;\n"
+        "  → propose export si besoin.\n"
+        "\n"
+        "ROUTAGE TOOLS :\n"
+        "- 'review'/'avis' → query_reviews (normalised-417010.reviews.reviews_by_user)\n"
+        "- 'email'/'message'/'crm' → query_crm (normalised-417010.crm.crm_data_detailed_by_user)\n"
+        "- 'expédition'/'shipment'/'livraison'/'logistique' → query_ops\n"
+        "- Tout le reste (ventes, clients, box) → query_bigquery\n"
+    )
+    return base + ("\n\n" + CONTEXT if CONTEXT else "")
 
-Tu as accès à BigQuery pour répondre aux questions business avec des données concrètes. n'aie pas de biais, si tu estimes que les volumes sont trop petits tu précises que ça va peut-être pas le faire. tu es le boss des analyses.
-
-🔴 CRITIQUE - OUTILS BIGQUERY :
-
-Tu as DEUX outils différents pour interroger BigQuery :
-
-1. query_bigquery → Pour teamdata-291012 (sales.*, user.*, inter.*)
-2. query_reviews → Pour normalised-417010 (reviews.reviews_by_user)
-3. query_crm → Pour normalised-417010 (crm.crm_data_detailed_by_user)
-4. query_ops → Pour normalised-417010 (ops.shipments_all) et teamdata-291012 :`teamdata-291012.ops.box_shipments` et `teamdata-291012.ops.shop_shipments`
-
-⚠️ RÈGLE ABSOLUE : 
-- "review" / "avis" → query_reviews
-- "email" / "message" / "crm" / "communication" → query_crm
-- Tout le reste (ventes, clients, box) → query_bigquery
-- "expédition" / "shipment" / "livraison" / "logistique" → query_ops 
-- choose ou nme sur choose_by_user
-
-Exemples :
-- "Combien de ventes ?" → query_bigquery
-- "Combien de reviews ?" → query_reviews
-- "Emails reçus ce mois" → query_crm
-- "Messages de mathieu@blissim.fr" → query_crm
-- l'allocation c'est quand on a un coffret_id. c'est différent du choice_id qui est le choose du produit personnalisé du mois. on parle d'allocation ou de compo ça veut dire j'ai reçu tel coffret_id. 
-
-Tu as aussi accès à Notion pour retrouver de la documentation, des process, des notes d'équipe.
-
-Quand tu ne connais pas la structure d'une table, utilise l'outil describe_table pour la découvrir.
-
-IMPORTANT - Formatage Slack :
-- Pour le gras, utilise *un seul astérisque* : *texte en gras*
-- Pour l'italique, utilise _underscore_ : _texte en italique*
-- Pour les listes à puces, utilise • ou - 
-- Les blocs de code SQL restent avec ```sql
-- N'utilise JAMAIS **double astérisque** (ça ne marche pas dans Slack)
-
-CRITIQUE - Dates :
-- Tu n'as PAS de date actuelle fixe
-- TOUJOURS utiliser CURRENT_DATE('Europe/Paris') dans tes requêtes SQL pour obtenir la date réelle du jour
-- Pour l'heure : CURRENT_DATETIME('Europe/Paris')
-- JAMAIS de dates en dur comme '2025-10-11' ou '2025-10-14'
-- Si l'utilisateur demande "aujourd'hui", "hier", "ce mois" → utilise CURRENT_DATE() et les fonctions SQL dynamiques
-
-═══════════════════════════════════════════════════════════════════
-🎯 IMPORTANT : UTILISE LA DOCUMENTATION CI-DESSOUS
-═══════════════════════════════════════════════════════════════════
-
-Tu as accès à une documentation complète ci-dessous qui contient :
-- Les définitions métier (LIVE, REAC, NEWNEW, compo, coffret_id, etc.)
-- Les structures de tables et leurs colonnes
-- Les exemples de requêtes
-- Les règles de jointure
-
-**AVANT de répondre à une question technique ou métier :**
-1. CHERCHE d'abord dans la documentation ci-dessous
-2. Utilise les définitions et vocabulaire exact de la doc
-3. N'invente pas, réfère-toi au contexte fourni
-
-**Exemple :** Si on te demande "c'est quoi un LIVE ?", cherche dans la section VOCABULAIRE ci-dessous plutôt que de deviner."""
-    
-    if CONTEXT:
-        return f"{base_prompt}\n\n{CONTEXT}"
-    return base_prompt
-
-# ---------- Définition des tools ----------
+# ---------------------------------------
+# Tools (déclaration pour Anthropic)
+# ---------------------------------------
 TOOLS = [
     {
         "name": "describe_table",
-        "description": "Récupère la structure (colonnes, types, descriptions) d'une table BigQuery. Utilise cet outil quand tu as besoin de connaître les colonnes disponibles dans une table.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "table_name": {
-                    "type": "string",
-                    "description": "Nom complet de la table au format 'dataset.table' (ex: 'sales.box_sales')"
-                }
-            },
-            "required": ["table_name"]
-        }
+        "description": "Structure d'une table BigQuery",
+        "input_schema": {"type": "object", "properties": {"table_name": {"type": "string"}}, "required": ["table_name"]}
     },
     {
         "name": "query_bigquery",
-        "description": "Exécute une requête SQL sur BigQuery dans le projet teamdata-291012. Pour les tables sales.*, user.*, inter.*",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "La requête SQL à exécuter sur BigQuery"
-                }
-            },
-            "required": ["query"]
-        }
+        "description": "Exécute SQL sur teamdata-291012 (sales.*, user.*, inter.*)",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
     },
     {
         "name": "query_reviews",
-        "description": "Exécute une requête SQL sur la table REVIEWS dans le projet normalised-417010. UNIQUEMENT pour la table reviews.reviews_by_user. Utilise cet outil pour toutes les questions sur les avis clients.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "La requête SQL à exécuter sur reviews.reviews_by_user"
-                }
-            },
-            "required": ["query"]
-        }
+        "description": "SQL sur normalised-417010.reviews.reviews_by_user",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
     },
     {
-    "name": "query_ops",
-    "description": "Exécute une requête SQL sur la table OPS/SHIPMENTS dans le projet normalised-417010. UNIQUEMENT pour la table ops.shipments_all. Utilise cet outil pour toutes les questions sur les expéditions et la logistique. mùais aussi `teamdata-291012.ops.box_shipments`  et `teamdata-291012.ops.shop_shipments` ",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "La requête SQL à exécuter sur ops.shipments_all et `teamdata-291012.ops.box_shipments` et `teamdata-291012.ops.shop_shipments`"
-                }
-            },
-        "required": ["query"]
-        }
+        "name": "query_ops",
+        "description": "SQL sur ops.shipments_all (normalised) + ops.* (teamdata)",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
     },
     {
         "name": "query_crm",
-        "description": "Exécute une requête SQL sur la table CRM dans le projet normalised-417010. UNIQUEMENT pour la table crm.crm_data_detailed_by_user (emails reçus/envoyés, interactions clients via Imagino). Utilise cet outil pour toutes les questions sur les emails et la communication client.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "La requête SQL à exécuter sur crm.crm_data_detailed_by_user"
-                }
-            },
-            "required": ["query"]
-        }
-    },  
+        "description": "SQL sur normalised-417010.crm.crm_data_detailed_by_user",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+    },
     {
         "name": "search_notion",
-        "description": "Recherche des pages ou databases dans Notion par mot-clé. Utile pour retrouver de la documentation, des notes, des process, etc.",
+        "description": "Recherche Notion par mot-clé",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Le terme à rechercher dans Notion"
-                },
-                "object_type": {
-                    "type": "string",
-                    "enum": ["page", "database"],
-                    "description": "Type d'objet à chercher (page ou database)",
-                    "default": "page"
-                }
-            },
+            "properties": {"query": {"type": "string"}, "object_type": {"type": "string", "enum": ["page", "database"], "default": "page"}},
             "required": ["query"]
         }
     },
     {
         "name": "read_notion_page",
-        "description": "Lit le contenu complet d'une page Notion à partir de son ID. Utilise cet outil après search_notion pour obtenir le détail.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "page_id": {
-                    "type": "string",
-                    "description": "L'ID de la page Notion à lire"
-                }
-            },
-            "required": ["page_id"]
-        }
-    },
-    {
-        "name": "create_notion_page",
-        "description": "Crée une nouvelle page dans Notion sous une page parente. Utile pour créer de la documentation, des notes, des comptes-rendus.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "parent_id": {
-                    "type": "string",
-                    "description": "L'ID de la page parente où créer la nouvelle page"
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Le titre de la nouvelle page"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Le contenu initial de la page (optionnel). Utilise \\n\\n pour séparer les paragraphes."
-                }
-            },
-            "required": ["parent_id", "title"]
-        }
-    },
-    {
-        "name": "append_to_notion_page",
-        "description": "Ajoute du contenu à une page Notion existante. Utilise cet outil pour compléter une page avec de nouvelles informations.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "page_id": {
-                    "type": "string",
-                    "description": "L'ID de la page à modifier"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Le contenu à ajouter. Utilise \\n\\n pour séparer les paragraphes."
-                }
-            },
-            "required": ["page_id", "content"]
-        }
-    },
-    {
-        "name": "create_database_entry",
-        "description": "Crée une nouvelle entrée dans une database Notion. Utile pour ajouter des tâches, des clients, des produits, etc.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "database_id": {
-                    "type": "string",
-                    "description": "L'ID de la database"
-                },
-                "properties": {
-                    "type": "object",
-                    "description": "Les propriétés de l'entrée sous forme de dictionnaire {nom_propriété: valeur}"
-                }
-            },
-            "required": ["database_id", "properties"]
-        }
-    },
-    {
-        "name": "update_notion_page",
-        "description": "Met à jour les propriétés ou ajoute du contenu à une page existante.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "page_id": {
-                    "type": "string",
-                    "description": "L'ID de la page à mettre à jour"
-                },
-                "properties": {
-                    "type": "object",
-                    "description": "Nouvelles valeurs des propriétés (optionnel)"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Contenu à ajouter (optionnel)"
-                }
-            },
-            "required": ["page_id"]
-        }
+        "description": "Lit une page Notion",
+        "input_schema": {"type": "object", "properties": {"page_id": {"type": "string"}}, "required": ["page_id"]}
     }
 ]
-# ---------- Mémoire par thread ----------
-THREAD_MEMORY = {}  # {thread_ts: [messages]}
-LAST_QUERIES = {}   # {thread_ts: [sql_queries]}
+
+# ---------------------------------------
+# Mémoire par thread
+# ---------------------------------------
+THREAD_MEMORY: Dict[str, List[Dict[str, Any]]] = {}
+LAST_QUERIES: Dict[str, List[str]] = {}
 
 def get_thread_history(thread_ts: str) -> List[Dict]:
-    """Récupère l'historique d'un thread"""
     return THREAD_MEMORY.get(thread_ts, [])
 
 def add_to_thread_history(thread_ts: str, role: str, content: Any):
-    """Ajoute un message à l'historique du thread"""
     if thread_ts not in THREAD_MEMORY:
         THREAD_MEMORY[thread_ts] = []
     THREAD_MEMORY[thread_ts].append({"role": role, "content": content})
-    
-    # Limite l'historique à 20 messages pour éviter de surcharger
-    if len(THREAD_MEMORY[thread_ts]) > 20:
-        THREAD_MEMORY[thread_ts] = THREAD_MEMORY[thread_ts][-20:]
+    if len(THREAD_MEMORY[thread_ts]) > HISTORY_LIMIT:
+        THREAD_MEMORY[thread_ts] = THREAD_MEMORY[thread_ts][-HISTORY_LIMIT:]
 
 def add_query_to_thread(thread_ts: str, query: str):
-    """Enregistre la dernière requête SQL exécutée"""
-    if thread_ts not in LAST_QUERIES:
-        LAST_QUERIES[thread_ts] = []
-    LAST_QUERIES[thread_ts].append(query)
+    LAST_QUERIES.setdefault(thread_ts, []).append(query)
 
 def get_last_queries(thread_ts: str) -> List[str]:
-    """Récupère les dernières requêtes du thread"""
     return LAST_QUERIES.get(thread_ts, [])
 
 def clear_last_queries(thread_ts: str):
-    """Efface les requêtes du thread actuel"""
     if thread_ts in LAST_QUERIES:
         LAST_QUERIES[thread_ts] = []
 
-# ---------- Fonctions d'exécution des tools ----------
+# ---------------------------------------
+# Logs coût Anthropic
+# ---------------------------------------
+def log_claude_usage(resp, *, label="CLAUDE"):
+    u = getattr(resp, "usage", None) or {}
+    in_tok  = getattr(u, "input_tokens", 0)  or u.get("input_tokens", 0)
+    out_tok = getattr(u, "output_tokens", 0) or u.get("output_tokens", 0)
+    cache_create = getattr(u, "cache_creation_input_tokens", 0) or u.get("cache_creation_input_tokens", 0)
+    cache_read   = getattr(u, "cache_read_input_tokens", 0)     or u.get("cache_read_input_tokens", 0)
+
+    cost_in  = (in_tok  / 1000.0) * ANTHROPIC_IN_PRICE
+    cost_out = (out_tok / 1000.0) * ANTHROPIC_OUT_PRICE
+
+    if cache_create or cache_read:
+        base_in       = (max(in_tok - cache_create - cache_read, 0) / 1000.0) * ANTHROPIC_IN_PRICE
+        cache_write_c = (cache_create / 1000.0) * ANTHROPIC_IN_PRICE * 1.25
+        cache_read_c  = (cache_read   / 1000.0) * ANTHROPIC_IN_PRICE * 0.10
+        cost_in = base_in + cache_write_c + cache_read_c
+
+    total = cost_in + cost_out
+    print(f"[{label}] usage: in={in_tok} tok, out={out_tok} tok"
+          + (f", cache_write={cache_create} tok, cache_read={cache_read} tok" if cache_create or cache_read else ""))
+    print(f"[{label}] cost: input≈${cost_in:.4f}, output≈${cost_out:.4f}, total≈${total:.4f}")
+
+# ---------------------------------------
+# Utils BigQuery
+# ---------------------------------------
+def detect_project_from_sql(query: str) -> str:
+    q = query.lower()
+    if "teamdata-291012." in q:
+        return "default"
+    if "normalised-417010." in q or "normalized-417010." in q or "ops.shipments_all" in q or "crm.crm_data_detailed_by_user" in q or "reviews.reviews_by_user" in q:
+        return "normalized"
+    # fallback
+    return "default"
+
+def _enforce_limit(q: str) -> str:
+    q_low = q.strip().lower()
+    if "/* no_limit */" in q_low:
+        return q
+    if q_low.startswith("select") and " limit " not in q_low:
+        return q.rstrip().rstrip(";") + f"\nLIMIT {MAX_ROWS + 1}"
+    return q
+
 def describe_table(table_name: str) -> str:
-    """Récupère la structure d'une table BigQuery"""
-    if not bq_client:
-        return "❌ BigQuery non configuré."
-    
     try:
-        # Parser le nom de table (dataset.table)
-        parts = table_name.split('.')
-        if len(parts) != 2:
-            return "❌ Format invalide. Utilise 'dataset.table' (ex: 'sales.box_sales')"
-        
-        dataset_id, table_id = parts
-        project_id = os.getenv("BIGQUERY_PROJECT_ID")
-        
-        # Requête pour récupérer le schéma
+        parts = table_name.split(".")
+        if len(parts) == 3:
+            project_id, dataset_id, table_id = parts
+        elif len(parts) == 2:
+            project_id = os.getenv("BIGQUERY_PROJECT_ID")
+            dataset_id, table_id = parts
+        else:
+            return "❌ Format invalide. Utilise 'dataset.table' ou 'project.dataset.table'"
+
+        if project_id == os.getenv("BIGQUERY_PROJECT_ID"):
+            client = bq_client
+        elif project_id == os.getenv("BIGQUERY_PROJECT_ID_2"):
+            client = bq_client_normalized
+        else:
+            client = bq_client
+
+        if not client:
+            return "❌ BigQuery non configuré pour ce projet."
+
         query = f"""
-        SELECT 
-          column_name,
-          data_type,
-          is_nullable,
-          description
+        SELECT column_name, data_type, is_nullable, description
         FROM `{project_id}.{dataset_id}.INFORMATION_SCHEMA.COLUMNS`
         WHERE table_name = '{table_id}'
         ORDER BY ordinal_position
         """
-        
-        query_job = bq_client.query(query)
-        results = query_job.result()
-        
-        columns = []
-        for row in results:
-            col_info = {
-                "nom": row.column_name,
-                "type": row.data_type,
-                "nullable": row.is_nullable == "YES",
-            }
-            if row.description:
-                col_info["description"] = row.description
-            columns.append(col_info)
-        
-        if not columns:
-            return f"❌ Table '{table_name}' introuvable ou vide."
-        
-        return json.dumps({
-            "table": table_name,
-            "colonnes": columns,
-            "total": len(columns)
-        }, ensure_ascii=False, indent=2)
-        
+        rows = list(client.query(query).result())
+        if not rows:
+            query2 = f"""
+            SELECT column_name, data_type, is_nullable, description
+            FROM `{project_id}.{dataset_id}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
+            WHERE table_name = '{table_id}'
+            ORDER BY column_name
+            """
+            rows = list(client.query(query2).result())
+        if not rows:
+            return f"❌ Table '{project_id}.{dataset_id}.{table_id}' introuvable."
+
+        cols = []
+        for r in rows:
+            cols.append({
+                "nom": r.column_name,
+                "type": r.data_type,
+                "nullable": (str(getattr(r, "is_nullable", "YES")).upper() == "YES"),
+                **({"description": r.description} if getattr(r, "description", None) else {})
+            })
+        return json.dumps({"table": f"{project_id}.{dataset_id}.{table_id}", "colonnes": cols, "total": len(cols)}, ensure_ascii=False, indent=2)
     except Exception as e:
         return f"❌ Erreur describe_table: {str(e)}"
 
-
 def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> str:
-    """Exécute une requête BigQuery"""
-    
-    # Choisir le bon client
-    if project == "normalized":
-        client = bq_client_normalized
-        if not client:
-            return "❌ Projet normalized non configuré."
-    else:
-        client = bq_client
-        if not client:
-            return "❌ BigQuery non configuré."
-    
+    client = bq_client_normalized if project == "normalized" else bq_client
+    if not client:
+        return "❌ BigQuery non configuré."
     try:
         add_query_to_thread(thread_ts, query)
-        
-        query_job = client.query(query)
-        results = query_job.result()
-        rows = [dict(row) for row in results]
-        
-        if not rows:
-            return "Aucun résultat trouvé."
-        
-        return json.dumps(rows[:50], default=str, ensure_ascii=False, indent=2)
+        q = _enforce_limit(query)
+        job = client.query(q)
+        rows_iter = job.result(timeout=TOOL_TIMEOUT_S)
+
+        rows = []
+        for i, row in enumerate(rows_iter, 1):
+            rows.append(dict(row))
+            if i >= MAX_ROWS + 1:
+                break
+
+        # Logging BQ conso (console)
+        try:
+            bytes_proc = job.total_bytes_processed or 0
+            tib = bytes_proc / float(1024 ** 4)
+            # prix indicatif on-demand
+            price_per_tib = float(os.getenv("BQ_PRICE_PER_TIB", "6.25"))
+            cost = tib * price_per_tib
+            print(f"[BQ] processed={bytes_proc:,} bytes (~{tib:.6f} TiB) cost≈${cost:.4f}")
+        except Exception as e:
+            print(f"[BQ] log error: {e}")
+
+        # si trop long → résumé + SQL
+        if len(rows) > MAX_ROWS:
+            preview = rows[:3]
+            payload = {
+                "note": f"Résultat trop long (> {MAX_ROWS} lignes) — listing masqué.",
+                "preview_first_rows": preview,
+                "estimated_total_rows": f">{MAX_ROWS}",
+            }
+            text = json.dumps(payload, ensure_ascii=False, indent=2)
+            out = (text[:MAX_TOOL_CHARS] + " …") if len(text) > MAX_TOOL_CHARS else text
+            out += f"\n\n-- SQL utilisée (avec LIMIT auto)\n```sql\n{q}\n```"
+            return out
+
+        out = json.dumps(rows, default=str, ensure_ascii=False, indent=2)
+        if len(out) > MAX_TOOL_CHARS:
+            out = out[:MAX_TOOL_CHARS] + " …\n\n-- SQL\n```sql\n{q}\n```"
+        return out or "Aucun résultat."
     except Exception as e:
         return f"❌ Erreur BigQuery: {str(e)}"
 
-
 def search_notion(query: str, object_type: str = "page") -> str:
-    """Recherche dans Notion (pages ou databases)"""
     if not notion_client:
         return "❌ Notion non configuré."
-    
     try:
         results = notion_client.search(
             query=query,
             filter={"property": "object", "value": object_type},
             page_size=10
         ).get("results", [])
-        
         if not results:
             return f"Aucun résultat trouvé pour '{query}'"
-        
         output = []
         for item in results:
             title = "Sans titre"
-            
             if object_type == "page":
                 if item.get("properties"):
                     title_prop = item["properties"].get("title") or item["properties"].get("Name")
                     if title_prop and title_prop.get("title"):
                         title = title_prop["title"][0]["plain_text"]
-            else:  # database
+            else:
                 if item.get("title"):
                     title = item["title"][0]["plain_text"] if item["title"] else "Sans titre"
-            
             output.append({
                 "titre": title,
                 "id": item["id"],
                 "url": item.get("url", ""),
                 "derniere_modif": item.get("last_edited_time", "")
             })
-        
-        return json.dumps(output, ensure_ascii=False, indent=2)
-        
+        text = json.dumps(output, ensure_ascii=False, indent=2)
+        return text if len(text) <= MAX_TOOL_CHARS else text[:MAX_TOOL_CHARS] + " …"
     except Exception as e:
         return f"❌ Erreur Notion: {str(e)}"
 
-
-def read_notion_page(page_id: str) -> str:
-    """Lit le contenu d'une page Notion"""
-    if not notion_client:
-        return "❌ Notion non configuré."
-    
-    try:
-        # Récupérer la page
-        page = notion_client.pages.retrieve(page_id=page_id)
-        
-        # Récupérer les blocs de contenu
-        blocks = notion_client.blocks.children.list(block_id=page_id).get("results", [])
-        
-        # Extraire le titre
-        title = "Sans titre"
-        if page.get("properties"):
-            title_prop = page["properties"].get("title") or page["properties"].get("Name")
-            if title_prop and title_prop.get("title"):
-                title = title_prop["title"][0]["plain_text"]
-        
-        # Extraire le contenu textuel
-        content_parts = [f"# {title}\n"]
-        
-        for block in blocks:
-            block_type = block.get("type")
-            if block_type and block.get(block_type):
-                text_content = block[block_type].get("rich_text", [])
-                if text_content:
-                    text = " ".join([t.get("plain_text", "") for t in text_content])
-                    if text:
-                        content_parts.append(text)
-        
-        return "\n\n".join(content_parts)
-        
-    except Exception as e:
-        return f"❌ Erreur lecture page: {str(e)}"
-def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
-    """Crée une nouvelle page dans Notion"""
-    if not notion_client:
-        return "❌ Notion non configuré."
-    
-    try:
-        print(f"🔨 Tentative création page '{title}' dans {parent_id}")
-        
-        # Limiter le contenu à 2000 caractères pour éviter les timeouts
-        if len(content) > 2000:
-            content = content[:2000] + "\n\n... (contenu tronqué)"
-            print(f"⚠️ Contenu tronqué à 2000 caractères")
-        
-        # Préparer les blocs de contenu
-        children = []
-        if content:
-            # Découper le contenu en paragraphes
-            paragraphs = content.split('\n\n')
-            for para in paragraphs[:20]:  # Max 20 paragraphes
-                if para.strip():
-                    children.append({
-                        "object": "block",
-                        "type": "paragraph",
-                        "paragraph": {
-                            "rich_text": [{
-                                "type": "text",
-                                "text": {"content": para.strip()[:2000]}  # Max 2000 chars par bloc
-                            }]
-                        }
-                    })
-        
-        print(f"📝 Création avec {len(children)} blocs...")
-        
-        # Créer la page
-        new_page = notion_client.pages.create(
-            parent={"page_id": parent_id},
-            properties={
-                "title": {
-                    "title": [{
-                        "text": {"content": title[:100]}  # Limiter le titre
-                    }]
-                }
-            },
-            children=children if children else []
-        )
-        
-        print(f"✅ Page créée : {new_page['url']}")
-        
-        return json.dumps({
-            "success": True,
-            "page_id": new_page["id"],
-            "url": new_page["url"],
-            "message": f"Page '{title}' créée avec succès"
-        }, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        error_msg = str(e)
-        print(f"❌ Erreur création page: {error_msg}")
-        return f"❌ Erreur création page: {error_msg[:500]}"
-
-
-def append_to_notion_page(page_id: str, content: str) -> str:
-    """Ajoute du contenu à une page Notion existante"""
-    if not notion_client:
-        return "❌ Notion non configuré."
-    
-    try:
-        # Préparer les blocs
-        children = []
-        paragraphs = content.split('\n\n')
-        
-        for para in paragraphs:
-            if para.strip():
-                children.append({
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [{
-                            "type": "text",
-                            "text": {"content": para.strip()}
-                        }]
-                    }
-                })
-        
-        # Ajouter les blocs à la page
-        notion_client.blocks.children.append(
-            block_id=page_id,
-            children=children
-        )
-        
-        return json.dumps({
-            "success": True,
-            "message": f"Contenu ajouté à la page ({len(children)} paragraphes)"
-        }, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        return f"❌ Erreur ajout contenu: {str(e)}"
-
-
-def create_database_entry(database_id: str, properties: dict) -> str:
-    """Crée une entrée dans une database Notion"""
-    if not notion_client:
-        return "❌ Notion non configuré."
-    
-    try:
-        # Formater les propriétés selon le type
-        formatted_props = {}
-        
-        for prop_name, prop_value in properties.items():
-            # Si c'est un dict avec un type spécifié
-            if isinstance(prop_value, dict) and "type" in prop_value:
-                formatted_props[prop_name] = prop_value
-            # Sinon, deviner le type
-            elif isinstance(prop_value, str):
-                # Par défaut, traiter comme titre ou rich_text
-                if prop_name.lower() in ["name", "title", "nom", "titre"]:
-                    formatted_props[prop_name] = {
-                        "title": [{"text": {"content": prop_value}}]
-                    }
-                else:
-                    formatted_props[prop_name] = {
-                        "rich_text": [{"text": {"content": prop_value}}]
-                    }
-            elif isinstance(prop_value, (int, float)):
-                formatted_props[prop_name] = {"number": prop_value}
-            elif isinstance(prop_value, bool):
-                formatted_props[prop_name] = {"checkbox": prop_value}
-        
-        # Créer l'entrée
-        new_entry = notion_client.pages.create(
-            parent={"database_id": database_id},
-            properties=formatted_props
-        )
-        
-        return json.dumps({
-            "success": True,
-            "page_id": new_entry["id"],
-            "url": new_entry["url"],
-            "message": "Entrée créée avec succès"
-        }, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        return f"❌ Erreur création entrée: {str(e)}"
-
-
-def update_notion_page(page_id: str, properties: dict = None, content: str = None) -> str:
-    """Met à jour les propriétés ou le contenu d'une page"""
-    if not notion_client:
-        return "❌ Notion non configuré."
-    
-    try:
-        result = {"success": True, "updated": []}
-        
-        # Mettre à jour les propriétés si fournies
-        if properties:
-            formatted_props = {}
-            for prop_name, prop_value in properties.items():
-                if isinstance(prop_value, str):
-                    formatted_props[prop_name] = {
-                        "rich_text": [{"text": {"content": prop_value}}]
-                    }
-                elif isinstance(prop_value, (int, float)):
-                    formatted_props[prop_name] = {"number": prop_value}
-                elif isinstance(prop_value, bool):
-                    formatted_props[prop_name] = {"checkbox": prop_value}
-            
-            notion_client.pages.update(
-                page_id=page_id,
-                properties=formatted_props
-            )
-            result["updated"].append("propriétés")
-        
-        # Ajouter du contenu si fourni
-        if content:
-            append_to_notion_page(page_id, content)
-            result["updated"].append("contenu")
-        
-        result["message"] = f"Page mise à jour: {', '.join(result['updated'])}"
-        return json.dumps(result, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        return f"❌ Erreur mise à jour: {str(e)}"
-
+# ---------------------------------------
+# Exécution de tools
+# ---------------------------------------
 def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> str:
-    """Exécute un tool et retourne le résultat"""
     if tool_name == "describe_table":
         return describe_table(tool_input["table_name"])
     elif tool_name == "query_bigquery":
         return execute_bigquery(tool_input["query"], thread_ts, "default")
-    elif tool_name == "query_ops":  
-        return execute_bigquery(tool_input["query"], thread_ts, "normalized")
-    elif tool_name == "query_crm":
-        return execute_bigquery(tool_input["query"], thread_ts, "normalized")
-    elif tool_name == "query_reviews":
-        return execute_bigquery(tool_input["query"], thread_ts, "normalized")
+    elif tool_name in ("query_ops", "query_crm", "query_reviews"):
+        project = detect_project_from_sql(tool_input["query"])
+        return execute_bigquery(tool_input["query"], thread_ts, project)
     elif tool_name == "search_notion":
-        return search_notion(
-            tool_input["query"],
-            tool_input.get("object_type", "page")
-        )
+        return search_notion(tool_input["query"], tool_input.get("object_type", "page"))
     elif tool_name == "read_notion_page":
         return read_notion_page(tool_input["page_id"])
-    elif tool_name == "create_notion_page":
-        return create_notion_page(
-            tool_input["parent_id"],
-            tool_input["title"],
-            tool_input.get("content", "")
-        )
-    elif tool_name == "append_to_notion_page":
-        return append_to_notion_page(
-            tool_input["page_id"],
-            tool_input["content"]
-        )
-    elif tool_name == "create_database_entry":
-        return create_database_entry(
-            tool_input["database_id"],
-            tool_input["properties"]
-        )
-    elif tool_name == "update_notion_page":
-        return update_notion_page(
-            tool_input["page_id"],
-            tool_input.get("properties"),
-            tool_input.get("content")
-        )
     else:
         return f"❌ Tool inconnu: {tool_name}"
 
-# ---------- anti doublons ----------
+# ---------------------------------------
+# Anti-doublons & util Slack
+# ---------------------------------------
 class EventIdCache:
     def __init__(self, maxlen: int = 1024):
         self.maxlen = maxlen
         self._store = OrderedDict()
-
     def seen(self, event_id: str) -> bool:
         if not event_id:
             return False
@@ -866,129 +500,103 @@ def strip_own_mention(text: str, bot_user_id: Optional[str]) -> str:
         return (text or "").strip()
     return re.sub(rf"<@{bot_user_id}>\s*", "", text or "").strip()
 
+# ---------------------------------------
+# Appel Anthropic (avec Prompt Caching + logs)
+# ---------------------------------------
 def ask_claude(prompt: str, thread_ts: str, max_retries: int = 3) -> str:
-    """Appelle Claude avec support BigQuery, Notion, mémoire de thread et retry automatique"""
-    
     for attempt in range(max_retries):
         try:
-            # Récupérer l'historique du thread
             history = get_thread_history(thread_ts)
-            
-            # Construire les messages avec l'historique
             messages = history.copy()
             messages.append({"role": "user", "content": prompt})
-            
-            # Effacer les requêtes précédentes
             clear_last_queries(thread_ts)
-            
-            # Générer le system prompt avec contexte
-            system_prompt = get_system_prompt()
-            
-            # Première requête avec tools
+
+            # Prompt Caching : contexte lourd en bloc caché (éphemeral)
+            system_blocks = [
+                {"type": "text", "text": get_system_prompt().split("\n\n# DOCUMENTATION")[0]},
+            ]
+            # Ajoute CONTEXT caché seulement s'il existe
+            if CONTEXT:
+                system_blocks.append({"type": "text", "text": CONTEXT, "cache_control": {"type": "ephemeral"}})
+
             response = claude.messages.create(
-                model="claude-sonnet-4-5-20250929",
-                max_tokens=2048,
-                timeout=60.0,
-                system=system_prompt,
+                model=ANTHROPIC_MODEL,
+                max_tokens=2048,   # inchangé (qualité)
+                system=system_blocks,
                 tools=TOOLS,
                 messages=messages
             )
-            
-            # Boucle pour gérer les appels de tools (max 10 itérations)
+            log_claude_usage(response)
+
             iteration = 0
             while response.stop_reason == "tool_use" and iteration < 10:
                 iteration += 1
-                
-                # Ajouter la réponse de Claude aux messages
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-                
-                # Exécuter les tools demandés
+                messages.append({"role": "assistant", "content": response.content})
+
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
                         result = execute_tool(block.name, block.input, thread_ts)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result
-                        })
-                
-                # Ajouter les résultats
-                messages.append({
-                    "role": "user",
-                    "content": tool_results
-                })
-                
-                # Continuer la conversation
+                        # Tronquage défensif pour éviter d'inonder le modèle
+                        if isinstance(result, str) and len(result) > MAX_TOOL_CHARS:
+                            result = result[:MAX_TOOL_CHARS] + " …\n(Contenu tronqué)"
+                        tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
+
+                messages.append({"role": "user", "content": tool_results})
+
                 response = claude.messages.create(
-                    model="claude-sonnet-4-5-20250929",
+                    model=ANTHROPIC_MODEL,
                     max_tokens=2048,
-                    timeout=60.0,
-                    system=system_prompt,
+                    system=system_blocks,
                     tools=TOOLS,
                     messages=messages
                 )
-            
-            # Extraire la réponse finale
+                log_claude_usage(response)
+
             final_text = ""
             for block in response.content:
                 if hasattr(block, "text"):
                     final_text = block.text.strip()
                     break
-            
             if not final_text:
                 final_text = "🤔 Hmm, je n'ai pas de réponse claire."
-            
-            # Ajouter à l'historique du thread
+
             add_to_thread_history(thread_ts, "user", prompt)
             add_to_thread_history(thread_ts, "assistant", final_text)
-            
             return final_text
-            
+
         except APIError as e:
-            error_msg = str(e)
-            
-            # Gestion spécifique erreur 529 (Overloaded)
-            if "529" in error_msg or "overloaded" in error_msg.lower():
+            msg = str(e)
+            if "529" in msg or "overloaded" in msg.lower():
                 if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) * 2  # 2s, 4s, 8s
-                    print(f"⚠️ API surchargée, retry {attempt + 1}/{max_retries} dans {wait_time}s...")
+                    wait_time = (2 ** attempt) * 2
+                    print(f"⚠️ API surchargée, retry {attempt + 1}/{max_retries} dans {wait_time}s…")
                     time.sleep(wait_time)
                     continue
                 else:
-                    return "⚠️ L'API Claude est temporairement surchargée. Réessaye dans quelques minutes ! 🙏"
-            
-            # Gestion autres erreurs API
-            elif "timeout" in error_msg.lower():
-                return "⏱️ Désolé, ma requête a pris trop de temps. Peux-tu reformuler ou simplifier ta question ?"
-            elif "rate" in error_msg.lower() or "limit" in error_msg.lower():
-                return "🚦 J'ai atteint une limite d'API. Réessaye dans quelques secondes !"
+                    return "⚠️ L'API est temporairement surchargée. Réessaie dans quelques minutes."
+            elif "timeout" in msg.lower():
+                return "⏱️ Désolé, ma requête a pris trop de temps. Peux-tu reformuler ou simplifier ?"
+            elif "rate" in msg.lower() or "limit" in msg.lower():
+                return "🚦 Limite d'API atteinte. Réessaie dans quelques secondes."
             else:
-                return f"⚠️ Erreur technique : {error_msg[:200]}"
-                
+                return f"⚠️ Erreur technique : {msg[:200]}"
         except Exception as e:
-            error_msg = str(e)
-            return f"⚠️ Erreur inattendue : {error_msg[:200]}"
-    
-    return "⚠️ Impossible de joindre Claude après plusieurs tentatives. Réessaye plus tard ! 🙏"
+            return f"⚠️ Erreur inattendue : {str(e)[:200]}"
+
+    return "⚠️ Impossible de joindre le modèle après plusieurs tentatives."
 
 def format_sql_queries(queries: List[str]) -> str:
-    """Formate les requêtes SQL en bloc de code Slack"""
     if not queries:
         return ""
-    
     result = "\n\n*📊 Requête(s) SQL utilisée(s) :*"
-    for i, query in enumerate(queries, 1):
-        # Nettoyer la requête
-        clean_query = query.strip()
-        result += f"\n```sql\n{clean_query}\n```"
-    
+    for q in queries:
+        result += f"\n```sql\n{q.strip()}\n```"
     return result
 
-# ---------- @mention ----------
+# ---------------------------------------
+# Handlers Slack
+# ---------------------------------------
 @app.event("app_mention")
 def on_app_mention(body, event, client, logger):
     try:
@@ -999,153 +607,115 @@ def on_app_mention(body, event, client, logger):
             return
 
         channel   = event["channel"]
-        user      = event.get("user", "")
         msg_ts    = event["ts"]
         thread_ts = event.get("thread_ts", msg_ts)
         raw_text  = event.get("text") or ""
 
         bot_user_id = get_bot_user_id()
-        prompt = strip_own_mention(raw_text, bot_user_id)
-        if not prompt:
-            prompt = "Dis bonjour (très bref) avec une micro-blague."
+        prompt = strip_own_mention(raw_text, bot_user_id) or "Dis bonjour (très bref) avec une micro-blague."
+        logger.info(f"🔵 @mention reçue: {prompt[:200]!r}")
 
-        logger.info(f"🔵 @mention reçue: {prompt[:100]}...")
-        
         answer = ask_claude(prompt, thread_ts)
-        
+
         # Ajouter les requêtes SQL seulement si demandé
-        if any(keyword in prompt.lower() for keyword in ["sql", "requête", "requete", "query"]):
+        if any(k in prompt.lower() for k in ["sql", "requête", "requete", "query"]):
             queries = get_last_queries(thread_ts)
             if queries:
                 answer += format_sql_queries(queries)
-        
+
         client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
         ACTIVE_THREADS.add(thread_ts)
-        
-        logger.info(f"✅ Réponse envoyée (thread ajouté aux actifs)")
-        
+        logger.info("✅ Réponse envoyée (thread ajouté aux actifs)")
     except Exception as e:
-        logger.exception(f"❌ Erreur dans on_app_mention: {e}")
+        logger.exception(f"❌ Erreur on_app_mention: {e}")
         try:
-            client.chat_postMessage(
-                channel=event["channel"],
-                thread_ts=event.get("thread_ts", event["ts"]),
-                text=f"⚠️ Oups, j'ai eu un problème technique : `{str(e)[:200]}`"
-            )
+            client.chat_postMessage(channel=event["channel"], thread_ts=event.get("thread_ts", event["ts"]), text=f"⚠️ Oups, j'ai eu un souci : `{str(e)[:200]}`")
         except:
             pass
 
-# ---------- messages suivants du thread ----------
 @app.event("message")
 def on_message(event, client, logger):
     try:
-        # Log TOUS les messages reçus
-        logger.info(f"📨 Message reçu : '{event.get('text', '')[:50]}...' channel={event.get('channel')} thread={event.get('thread_ts', 'NO_THREAD')}")
-        
-        # Ignorer les messages avec subtype (bot messages, etc.)
+        logger.info(f"📨 Message reçu : '{event.get('text', '')[:120]}…' channel={event.get('channel')} thread={event.get('thread_ts', 'NO_THREAD')}")
         if event.get("subtype"):
-            logger.info(f"   ⏭️  Ignoré (subtype: {event.get('subtype')})")
             return
-        
-        # Doit être dans un thread
         if "thread_ts" not in event:
-            logger.info("   ⏭️  Ignoré (pas dans un thread)")
             return
 
         thread_ts = event["thread_ts"]
         channel = event["channel"]
         user = event.get("user", "")
-        text = event.get("text", "").strip()
+        text = (event.get("text") or "").strip()
 
-        # Ignorer nos propres messages
-        bot_id = get_bot_user_id()
-        if user == bot_id:
-            logger.info("   ⏭️  Ignoré (c'est moi)")
+        if user == get_bot_user_id():
             return
-
-        # Vérifier si thread actif
         if thread_ts not in ACTIVE_THREADS:
-            logger.info(f"   ⏭️  Ignoré (thread {thread_ts[:10]}... pas dans ACTIVE_THREADS)")
-            logger.info(f"   ℹ️  Threads actifs actuellement: {len(ACTIVE_THREADS)} threads")
+            logger.info(f"⏭️ Thread {thread_ts[:10]}… non actif")
             return
 
-        logger.info(f"💬 Traitement message dans thread actif {thread_ts[:10]}...")
-        
         answer = ask_claude(text, thread_ts)
-        
-        # Ajouter les requêtes SQL seulement si demandé
-        if any(keyword in text.lower() for keyword in ["sql", "requête", "requete", "query"]):
+
+        if any(k in text.lower() for k in ["sql", "requête", "requete", "query"]):
             queries = get_last_queries(thread_ts)
             if queries:
                 answer += format_sql_queries(queries)
-        
-        client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
-        
-        logger.info("✅ Réponse envoyée dans le thread")
 
+        client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
+        logger.info("✅ Réponse envoyée dans le thread")
     except Exception as e:
-        logger.exception(f"❌ Erreur dans on_message: {e}")
+        logger.exception(f"❌ Erreur on_message: {e}")
         try:
-            client.chat_postMessage(
-                channel=event.get("channel"),
-                thread_ts=event.get("thread_ts"),
-                text=f"⚠️ Erreur : `{str(e)[:200]}`"
-            )
+            client.chat_postMessage(channel=event.get("channel"), thread_ts=event.get("thread_ts"), text=f"⚠️ Erreur : `{str(e)[:200]}`")
         except:
             pass
 
-
+# ---------------------------------------
+# Main
+# ---------------------------------------
 if __name__ == "__main__":
     at = app.client.auth_test()
     print(f"Slack OK: bot_user={at.get('user')} team={at.get('team')}")
-    
+
     services = []
-    
-    # Test BigQuery principal
     if bq_client:
         try:
             list(bq_client.list_datasets(max_results=1))
             services.append("BigQuery ✅")
             print(f"✅ BigQuery principal connecté : {os.getenv('BIGQUERY_PROJECT_ID')}")
         except Exception as e:
-            print(f"⚠️  BigQuery configuré mais erreur de connexion: {e}")
+            print(f"⚠️ BigQuery principal erreur: {e}")
             bq_client = None
     else:
         print("❌ BigQuery principal NON initialisé")
-    
-    # Test BigQuery normalized
+
     if bq_client_normalized:
         try:
             list(bq_client_normalized.list_datasets(max_results=1))
             services.append("BigQuery Normalised ✅")
             print(f"✅ BigQuery normalised connecté : {os.getenv('BIGQUERY_PROJECT_ID_2')}")
         except Exception as e:
-            print(f"⚠️  BigQuery normalised - erreur: {e}")
+            print(f"⚠️ BigQuery normalised erreur: {e}")
             bq_client_normalized = None
     else:
         print(f"❌ BigQuery normalised NON initialisé (BIGQUERY_PROJECT_ID_2={os.getenv('BIGQUERY_PROJECT_ID_2')})")
-    
-    # Test Notion
+
     if notion_client:
         try:
             test = notion_client.search(page_size=1)
             services.append("Notion ✅")
             print(f"✅ Notion connecté - {len(test.get('results', []))} page(s) accessible(s)")
         except Exception as e:
-            print(f"⚠️  Notion configuré mais erreur de connexion: {e}")
+            print(f"⚠️ Notion configuré mais erreur: {e}")
             notion_client = None
-    
-    if services:
-        print(f"⚡️ Mael prêt avec Claude + {' + '.join(services)}")
-    else:
-        print("⚡️ Mael prêt avec Claude uniquement")
-    
-    # Charger le contexte
-    print("\n📖 Chargement du contexte :")
+
+    print(f"⚡️ Franck prêt avec {' + '.join(services) if services else 'Claude seul'}")
+
+    print("\n📖 Chargement du contexte …")
     CONTEXT = load_context()
     print(f"   Total : {len(CONTEXT)} caractères\n")
-    
-    print("🧠 Mémoire de conversation activée par thread")
-    print(f"📍 Mode debug : logs détaillés activés\n")
-    
+
+    print("🧠 Mémoire par thread active")
+    print("🧾 Logs de coût Anthropic activés (console)")
+    print("🔒 Tronquage tool_result si > 2000 chars (configurable via MAX_TOOL_CHARS)\n")
+
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
