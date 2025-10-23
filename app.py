@@ -277,11 +277,15 @@ def clear_last_queries(thread_ts: str):
 # Logs coût Anthropic
 # ---------------------------------------
 def log_claude_usage(resp, *, label="CLAUDE"):
-    u = getattr(resp, "usage", None) or {}
-    in_tok  = getattr(u, "input_tokens", 0)  or u.get("input_tokens", 0)
-    out_tok = getattr(u, "output_tokens", 0) or u.get("output_tokens", 0)
-    cache_create = getattr(u, "cache_creation_input_tokens", 0) or u.get("cache_creation_input_tokens", 0)
-    cache_read   = getattr(u, "cache_read_input_tokens", 0)     or u.get("cache_read_input_tokens", 0)
+    u = getattr(resp, "usage", None)
+    if u is None:
+        print(f"[{label}] usage: non fourni par l’API")
+        return
+
+    in_tok  = getattr(u, "input_tokens", 0)
+    out_tok = getattr(u, "output_tokens", 0)
+    cache_create = getattr(u, "cache_creation_input_tokens", 0)
+    cache_read   = getattr(u, "cache_read_input_tokens", 0)
 
     cost_in  = (in_tok  / 1000.0) * ANTHROPIC_IN_PRICE
     cost_out = (out_tok / 1000.0) * ANTHROPIC_OUT_PRICE
@@ -296,6 +300,7 @@ def log_claude_usage(resp, *, label="CLAUDE"):
     print(f"[{label}] usage: in={in_tok} tok, out={out_tok} tok"
           + (f", cache_write={cache_create} tok, cache_read={cache_read} tok" if cache_create or cache_read else ""))
     print(f"[{label}] cost: input≈${cost_in:.4f}, output≈${cost_out:.4f}, total≈${total:.4f}")
+
 
 # ---------------------------------------
 # Utils BigQuery
