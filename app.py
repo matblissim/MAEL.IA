@@ -28,7 +28,7 @@ for var in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "ANTHROPIC_API_KEY"):
         raise RuntimeError(f"Variable manquante: {var}")
 
 # ---------- Constantes coût & garde-fous ----------
-ANTHROPIC_MODEL     = os.getenv("ANTHROPIC_MODEL", "claude-3.5-sonnet-latest")
+ANTHROPIC_MODEL     = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 ANTHROPIC_IN_PRICE  = float(os.getenv("ANTHROPIC_PRICE_IN",  "0.003"))   # $ / 1k tokens (input)
 ANTHROPIC_OUT_PRICE = float(os.getenv("ANTHROPIC_PRICE_OUT", "0.015"))   # $ / 1k tokens (output)
 
