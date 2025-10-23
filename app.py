@@ -192,6 +192,7 @@ def get_system_prompt() -> str:
         "- Si le résultat dépasse 50 lignes ou ~1500 caractères :\n"
         "  → ne colle pas le listing complet ;\n"
         "  → donne un résumé (compte + colonnes clés) et la requête SQL ;\n"
+        "Après chaque tool_use, produis une conclusion synthétique (1–3 lignes) avec un pourcentage clair et la population de référence."
         "  → propose export si besoin.\n"
         "\n"
         "ROUTAGE TOOLS :\n"
@@ -558,11 +559,11 @@ def ask_claude(prompt: str, thread_ts: str, max_retries: int = 3) -> str:
                 )
                 log_claude_usage(response)
 
-            final_text = ""
+            final_text_parts = []
             for block in response.content:
-                if hasattr(block, "text"):
-                    final_text = block.text.strip()
-                    break
+                if getattr(block, "type", "") == "text" and getattr(block, "text", "").strip():
+                    final_text_parts.append(block.text.strip())
+            final_text = "\n".join(final_text_parts).strip()
             if not final_text:
                 final_text = "🤔 Hmm, je n'ai pas de réponse claire."
 
