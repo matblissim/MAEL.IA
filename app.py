@@ -210,43 +210,116 @@ TOOLS = [
     {
         "name": "describe_table",
         "description": "Structure d'une table BigQuery",
-        "input_schema": {"type": "object", "properties": {"table_name": {"type": "string"}}, "required": ["table_name"]}
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "table_name": {"type": "string"}
+            },
+            "required": ["table_name"]
+        }
     },
     {
         "name": "query_bigquery",
         "description": "Exécute SQL sur teamdata-291012 (sales.*, user.*, inter.*)",
-        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"}
+            },
+            "required": ["query"]
+        }
     },
     {
         "name": "query_reviews",
         "description": "SQL sur normalised-417010.reviews.reviews_by_user",
-        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"}
+            },
+            "required": ["query"]
+        }
     },
     {
         "name": "query_ops",
         "description": "SQL sur ops.shipments_all (normalised) + ops.* (teamdata)",
-        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"}
+            },
+            "required": ["query"]
+        }
     },
     {
         "name": "query_crm",
         "description": "SQL sur normalised-417010.crm.crm_data_detailed_by_user",
-        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"}
+            },
+            "required": ["query"]
+        }
     },
     {
         "name": "search_notion",
         "description": "Recherche Notion par mot-clé",
         "input_schema": {
             "type": "object",
-            "properties": {"query": {"type": "string"}, "object_type": {"type": "string", "enum": ["page", "database"], "default": "page"}},
+            "properties": {
+                "query": {"type": "string"},
+                "object_type": {
+                    "type": "string",
+                    "enum": ["page", "database"],
+                    "default": "page"
+                }
+            },
             "required": ["query"]
         }
     },
     {
         "name": "read_notion_page",
         "description": "Lit une page Notion",
-        "input_schema": {"type": "object", "properties": {"page_id": {"type": "string"}}, "required": ["page_id"]}
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {"type": "string"}
+            },
+            "required": ["page_id"]
+        }
+    },
+    {
+        "name": "save_analysis_to_notion",
+        "description": (
+            "Crée une page d'analyse dans Notion sous la page 'Franck Data'. "
+            "À utiliser pour archiver une question business avec le prompt utilisateur et la requête SQL finale."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "parent_page_id": {
+                    "type": "string",
+                    "description": "ID Notion de la page parent (ex: la page 'Franck Data')."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Titre business clair, ex: 'Calendrier de l'avent FR 2025 vs 2024'."
+                },
+                "user_prompt": {
+                    "type": "string",
+                    "description": "La question posée par l'utilisateur."
+                },
+                "sql_query": {
+                    "type": "string",
+                    "description": "La requête SQL finale utilisée pour l'analyse."
+                }
+            },
+            "required": ["parent_page_id", "title", "user_prompt", "sql_query"]
+        }
     }
 ]
+
 
 # ---------------------------------------
 # Mémoire par thread
@@ -420,6 +493,72 @@ def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> st
         return out or "Aucun résultat."
     except Exception as e:
         return f"❌ Erreur BigQuery: {str(e)}"
+        
+def create_analysis_page(parent_id: str, title: str, user_prompt: str, sql_query: str) -> str:
+    """
+    Crée une page d'analyse standardisée dans Notion.
+    parent_id : page racine ("Franck Data", par exemple)
+    """
+    content = (
+        f"# {title}\n\n"
+        "## Contexte / Demande\n"
+        f"{user_prompt.strip()}\n\n"
+        "## Requête SQL\n"
+        "```sql\n"
+        f"{sql_query.strip()}\n"
+        "```\n\n"
+        "## Notes\n"
+        "- Cette page a été générée automatiquement par Franck.\n"
+        "- Vérifier les filtres (FR / période / table calendrier de l'avent).\n"
+    )
+    return create_notion_page(parent_id, title, content)
+        
+def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
+    """Crée une nouvelle page Notion sous une page parente."""
+    if not notion_client:
+        return "❌ Notion non configuré."
+
+    try:
+        # on découpe le contenu en paragraphes pour Notion
+        children_blocks = []
+        for para in content.split("\n\n"):
+            para = para.strip()
+            if not para:
+                continue
+            children_blocks.append({
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {"content": para[:2000]}
+                        }
+                    ]
+                }
+            })
+
+        new_page = notion_client.pages.create(
+            parent={"page_id": parent_id},
+            properties={
+                "title": {
+                    "title": [{
+                        "text": {"content": title[:100]}
+                    }]
+                }
+            },
+            children=children_blocks
+        )
+
+        return json.dumps({
+            "success": True,
+            "page_id": new_page["id"],
+            "url": new_page["url"],
+            "message": f"Page '{title}' créée avec succès"
+        }, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        return f"❌ Erreur création page: {str(e)[:300]}"
 
 def search_notion(query: str, object_type: str = "page") -> str:
     if not notion_client:
@@ -462,6 +601,12 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         return describe_table(tool_input["table_name"])
     elif tool_name == "query_bigquery":
         return execute_bigquery(tool_input["query"], thread_ts, "default")
+    elif tool_name == "save_analysis_to_notion":
+        parent_id = tool_input["parent_page_id"]
+        title = tool_input["title"]
+        user_prompt = tool_input["user_prompt"]
+        sql_query = tool_input["sql_query"]
+        return create_analysis_page(parent_id, title, user_prompt, sql_query)
     elif tool_name in ("query_ops", "query_crm", "query_reviews"):
         project = detect_project_from_sql(tool_input["query"])
         return execute_bigquery(tool_input["query"], thread_ts, project)
