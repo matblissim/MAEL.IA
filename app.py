@@ -513,88 +513,167 @@ def create_analysis_page(parent_id: str, title: str, user_prompt: str, sql_query
     )
     return create_notion_page(parent_id, title, content)
         
-def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
-    """Crée une nouvelle page Notion sous une page parente (supporte titres et blocs code SQL)."""
+def create_notion_page(parent_id: str, title: str, content: str = "", page_emoji: str = "📊") -> str:
+    """
+    Crée une page Notion sous parent_id, avec :
+    - titres (# / ## / ###),
+    - paragraphes,
+    - blocs code (```sql ... ``` ou ``` ... ``` multi-lignes),
+    - icône emoji de page.
+    """
+
     if not notion_client:
         return "❌ Notion non configuré."
 
     try:
-        children_blocks = []
-        for para in content.split("\n\n"):
-            para = para.strip()
-            if not para:
+        # 1. On découpe le contenu en blocs logiques, pas juste par double \n\n
+        # On lit ligne par ligne et on reconstruit des blocs.
+        lines = content.splitlines()
+
+        blocks = []
+        current_code_lang = None      # "sql" ou "plain text"
+        current_code_lines = []       # accumulateur de lignes de code
+        current_para_lines = []       # accumulateur de paragraphe (texte normal)
+
+        def flush_paragraph():
+            """Envoie le paragraphe accumulé dans blocks si non vide."""
+            nonlocal current_para_lines, blocks
+            if not current_para_lines:
+                return
+            paragraph_text = "\n".join(current_para_lines).strip()
+            if paragraph_text:
+                # headings markdown ?
+                if paragraph_text.startswith("# "):
+                    blocks.append({
+                        "object": "block",
+                        "type": "heading_1",
+                        "heading_1": {
+                            "rich_text": [{
+                                "type": "text",
+                                "text": {"content": paragraph_text[2:].strip()[:2000]}
+                            }]
+                        }
+                    })
+                elif paragraph_text.startswith("## "):
+                    blocks.append({
+                        "object": "block",
+                        "type": "heading_2",
+                        "heading_2": {
+                            "rich_text": [{
+                                "type": "text",
+                                "text": {"content": paragraph_text[3:].strip()[:2000]}
+                            }]
+                        }
+                    })
+                elif paragraph_text.startswith("### "):
+                    blocks.append({
+                        "object": "block",
+                        "type": "heading_3",
+                        "heading_3": {
+                            "rich_text": [{
+                                "type": "text",
+                                "text": {"content": paragraph_text[4:].strip()[:2000]}
+                            }]
+                        }
+                    })
+                else:
+                    blocks.append({
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{
+                                "type": "text",
+                                "text": {"content": paragraph_text[:2000]}
+                            }]
+                        }
+                    })
+            current_para_lines = []
+
+        def flush_code_block():
+            """Envoie le bloc code accumulé dans blocks si non vide."""
+            nonlocal current_code_lines, current_code_lang, blocks
+            if not current_code_lines:
+                return
+            code_text = "\n".join(current_code_lines)
+            blocks.append({
+                "object": "block",
+                "type": "code",
+                "code": {
+                    "language": "sql" if current_code_lang == "sql" else "plain text",
+                    "rich_text": [{
+                        "type": "text",
+                        "text": {"content": code_text[:2000]}
+                    }]
+                }
+            })
+            current_code_lines = []
+            current_code_lang = None
+
+        for line in lines:
+            stripped = line.strip()
+
+            # 2. Détection du début/fin d'un bloc code
+            if stripped.startswith("```"):
+                fence = stripped[3:].strip()  # peut être "sql", ""...
+                # cas: on ferme un bloc code déjà en cours
+                if current_code_lang is not None:
+                    # On ferme le bloc
+                    flush_code_block()
+                    continue
+                else:
+                    # On ouvre un bloc code
+                    flush_paragraph()  # avant de commencer le code
+                    current_code_lang = "sql" if fence.lower().startswith("sql") else "plain text"
+                    current_code_lines = []
+                    continue
+
+            # 3. Si on est DANS un bloc code : on empile les lignes dans current_code_lines
+            if current_code_lang is not None:
+                current_code_lines.append(line)
                 continue
 
-            # Si le paragraphe commence par un titre markdown
-            if para.startswith("# "):
-                children_blocks.append({
-                    "object": "block",
-                    "type": "heading_1",
-                    "heading_1": {"rich_text": [{"type": "text", "text": {"content": para[2:].strip()}}]}
-                })
-            elif para.startswith("## "):
-                children_blocks.append({
-                    "object": "block",
-                    "type": "heading_2",
-                    "heading_2": {"rich_text": [{"type": "text", "text": {"content": para[3:].strip()}}]}
-                })
-            elif para.startswith("### "):
-                children_blocks.append({
-                    "object": "block",
-                    "type": "heading_3",
-                    "heading_3": {"rich_text": [{"type": "text", "text": {"content": para[4:].strip()}}]}
-                })
-            # Bloc de code SQL propre
-            elif para.startswith("```sql"):
-                sql_code = para.replace("```sql", "").replace("```", "").strip()
-                children_blocks.append({
-                    "object": "block",
-                    "type": "code",
-                    "code": {
-                        "language": "sql",
-                        "rich_text": [{"type": "text", "text": {"content": sql_code[:2000]}}]
-                    }
-                })
-            # Bloc de code générique
-            elif para.startswith("```"):
-                generic_code = para.replace("```", "").strip()
-                children_blocks.append({
-                    "object": "block",
-                    "type": "code",
-                    "code": {
-                        "language": "plain text",
-                        "rich_text": [{"type": "text", "text": {"content": generic_code[:2000]}}]
-                    }
-                })
-            # Texte normal
+            # 4. Sinon on est dans du texte normal → on empile pour paragraphe
+            # Saut de ligne vide => flush paragraphe
+            if stripped == "":
+                flush_paragraph()
             else:
-                children_blocks.append({
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [{"type": "text", "text": {"content": para[:2000]}}]
-                    }
-                })
+                current_para_lines.append(line)
 
+        # fin du loop : flush ce qui reste
+        flush_paragraph()
+        flush_code_block()
+
+        # 2. Création de la page Notion
         new_page = notion_client.pages.create(
             parent={"page_id": parent_id},
+            icon={
+                "type": "emoji",
+                "emoji": page_emoji
+            },
             properties={
                 "title": {
-                    "title": [{"text": {"content": title[:100]}}]
+                    "title": [{
+                        "text": {"content": title[:100]}
+                    }]
                 }
             },
-            children=children_blocks
+            children=blocks
         )
 
-        return json.dumps({
-            "success": True,
-            "page_id": new_page["id"],
-            "url": new_page["url"],
-            "message": f"✅ Page '{title}' créée avec succès"
-        }, ensure_ascii=False, indent=2)
+        return json.dumps(
+            {
+                "success": True,
+                "page_id": new_page["id"],
+                "url": new_page["url"],
+                "message": f"Page '{title}' créée avec succès"
+            },
+            ensure_ascii=False,
+            indent=2
+        )
 
     except Exception as e:
         return f"❌ Erreur création page: {str(e)[:300]}"
+
 
 
 def search_notion(query: str, object_type: str = "page") -> str:
