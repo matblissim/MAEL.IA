@@ -300,7 +300,6 @@ def get_system_prompt() -> str:
         "- Si tu dis que tu ajoutes un tableau dans Notion, tu dois appeler l'outil append_table_to_notion_page."
         "- Si cet outil échoue, ton fallback automatique ajoute un bloc Markdown avec le tableau."
         "- Tu n'as plus le droit de dire "Je ne peux pas modifier une page existante" : maintenant tu peux."
-
         "\n"
         "RÈGLE SORTIE LONGUE :\n"
         "- Si le résultat dépasse 50 lignes ou ~1500 caractères :\n"
