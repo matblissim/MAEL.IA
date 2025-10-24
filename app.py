@@ -889,29 +889,53 @@ def search_notion(query: str, object_type: str = "page") -> str:
 def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> str:
     if tool_name == "describe_table":
         return describe_table(tool_input["table_name"])
+
     elif tool_name == "query_bigquery":
         return execute_bigquery(tool_input["query"], thread_ts, "default")
-    elif tool_name == "save_analysis_to_notion":
-        parent_id = tool_input["parent_page_id"]
-        title = tool_input["title"]
-        user_prompt = tool_input["user_prompt"]
-        sql_query = tool_input["sql_query"]
-        return create_analysis_page(parent_id, title, user_prompt, sql_query)
+
     elif tool_name in ("query_ops", "query_crm", "query_reviews"):
+        # routage dynamique vers le bon projet (teamdata vs normalised)
         project = detect_project_from_sql(tool_input["query"])
         return execute_bigquery(tool_input["query"], thread_ts, project)
+
     elif tool_name == "search_notion":
-        return search_notion(tool_input["query"], tool_input.get("object_type", "page"))
-    elif tool_name == "append_table_to_notion_page":
-        return append_table_to_notion_page(
-            tool_input["page_id"],
-            tool_input["headers"],
-            tool_input["rows"]
+        return search_notion(
+            tool_input["query"],
+            tool_input.get("object_type", "page")
         )
+
     elif tool_name == "read_notion_page":
         return read_notion_page(tool_input["page_id"])
+
+    elif tool_name == "save_analysis_to_notion":
+        # crée la page d'analyse standardisée (titre / prompt / SQL / emoji)
+        parent_id   = tool_input["parent_page_id"]
+        title       = tool_input["title"]
+        user_prompt = tool_input["user_prompt"]
+        sql_query   = tool_input["sql_query"]
+
+        return create_analysis_page(
+            parent_id=parent_id,
+            title=title,
+            user_prompt=user_prompt,
+            sql_query=sql_query
+        )
+
+    elif tool_name == "append_table_to_notion_page":
+        # insère un bloc table natif dans une page Notion existante
+        page_id = tool_input["page_id"]
+        headers = tool_input["headers"]
+        rows    = tool_input["rows"]
+
+        return append_table_to_notion_page(
+            page_id=page_id,
+            headers=headers,
+            rows=rows
+        )
+
     else:
         return f"❌ Tool inconnu: {tool_name}"
+
 
 # ---------------------------------------
 # Anti-doublons & util Slack
