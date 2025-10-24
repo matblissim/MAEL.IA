@@ -264,6 +264,7 @@ def get_system_prompt() -> str:
         "RÈGLE SORTIE LONGUE :\n"
         "- Si le résultat dépasse 50 lignes ou ~1500 caractères :\n"
         "  → ne colle pas le listing complet ;\n"
+        "  quand on te dit ajoute ca a notion, c'est dans la page Franck data tu crees une sous page avec la question, le thread et les infos, voire un résumé data"
         "  → donne un résumé (compte + colonnes clés) et la requête SQL ;\n"
         "Après chaque tool_use, produis une conclusion synthétique (1–3 lignes) avec un pourcentage clair et la population de référence."
         "  → propose export si besoin.\n"
