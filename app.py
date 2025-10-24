@@ -110,6 +110,79 @@ def parse_dbt_manifest_inline(manifest_path: str, schemas_filter: List[str] = No
     except Exception as e:
         print(f"⚠️  Erreur parsing DBT : {e}")
         return ""
+def append_table_to_notion_page(page_id: str, headers: List[str], rows: List[List[str]]) -> str:
+    """
+    Ajoute un bloc tableau dans une page Notion existante.
+    - headers: liste des noms de colonnes (strings)
+    - rows: liste de lignes, chaque ligne est une liste de cellules (toutes converties en texte)
+    Limitations:
+      - tout est inséré en tant que texte (Notion gère l'affichage tabulaire)
+      - pas de types riches (checkbox, number format) pour rester simple/stable
+    """
+    if not notion_client:
+        return "❌ Notion non configuré."
+
+    try:
+        # 1. On crée d'abord le bloc "table" vide
+        table_block = notion_client.blocks.children.append(
+            block_id=page_id,
+            children=[
+                {
+                    "object": "block",
+                    "type": "table",
+                    "table": {
+                        "table_width": len(headers),
+                        "has_column_header": True,
+                        "has_row_header": False,
+                        "children": []  # on ajoute les rows ensuite
+                    }
+                }
+            ]
+        )
+
+        # Récupérer l'ID du bloc table créé
+        table_id = table_block["results"][0]["id"]
+
+        # 2. Construire les rows Notion (entête + data)
+        header_row = {
+            "object": "block",
+            "type": "table_row",
+            "table_row": {
+                "cells": [[{"type": "text", "text": {"content": h[:200]}}] for h in headers]
+            }
+        }
+
+        data_rows = []
+        for row in rows:
+            data_rows.append({
+                "object": "block",
+                "type": "table_row",
+                "table_row": {
+                    "cells": [
+                        [{"type": "text", "text": {"content": str(cell)[:200]}}]
+                        for cell in row
+                    ]
+                }
+            })
+
+        # 3. On append les lignes dans le bloc table
+        notion_client.blocks.children.append(
+            block_id=table_id,
+            children=[header_row] + data_rows
+        )
+
+        return json.dumps(
+            {
+                "success": True,
+                "message": f"Tableau inséré ({len(rows)} lignes).",
+                "table_block_id": table_id
+            },
+            ensure_ascii=False,
+            indent=2
+        )
+
+    except Exception as e:
+        return f"❌ Erreur ajout tableau Notion: {str(e)[:300]}"
 
 def read_notion_page(page_id: str) -> str:
     if not notion_client:
@@ -209,70 +282,115 @@ def get_system_prompt() -> str:
 TOOLS = [
     {
         "name": "describe_table",
-        "description": "Structure d'une table BigQuery",
+        "description": (
+            "Récupère la structure d'une table BigQuery (colonnes, types, descriptions). "
+            "Utilise cet outil quand tu dois savoir quelles colonnes existent."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "table_name": {"type": "string"}
+                "table_name": {
+                    "type": "string",
+                    "description": "Nom complet de la table. Format accepté : "
+                                   "'dataset.table' ou 'project.dataset.table'."
+                }
             },
             "required": ["table_name"]
         }
     },
     {
         "name": "query_bigquery",
-        "description": "Exécute SQL sur teamdata-291012 (sales.*, user.*, inter.*)",
+        "description": (
+            "Exécute une requête SQL sur BigQuery dans le projet teamdata-291012. "
+            "À utiliser pour toutes les questions ventes, clients, box, user.*, sales.*, inter.*"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string"}
+                "query": {
+                    "type": "string",
+                    "description": "La requête SQL à exécuter. "
+                                   "Toujours utiliser CURRENT_DATE('Europe/Paris') pour les dates dynamiques."
+                }
             },
             "required": ["query"]
         }
     },
     {
         "name": "query_reviews",
-        "description": "SQL sur normalised-417010.reviews.reviews_by_user",
+        "description": (
+            "Exécute une requête SQL sur normalised-417010.reviews.reviews_by_user. "
+            "À utiliser pour tout ce qui concerne les avis / reviews clients."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string"}
+                "query": {
+                    "type": "string",
+                    "description": "La requête SQL à exécuter (reviews.reviews_by_user)."
+                }
             },
             "required": ["query"]
         }
     },
     {
         "name": "query_ops",
-        "description": "SQL sur ops.shipments_all (normalised) + ops.* (teamdata)",
+        "description": (
+            "Exécute une requête SQL logistique / expéditions / shipments. "
+            "Par défaut utilise normalised-417010.ops.shipments_all "
+            "ou les tables ops.* de teamdata-291012 pour box/shop shipments."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string"}
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "La requête SQL à exécuter sur les données d'expédition. "
+                        "Utiliser 'ops.shipments_all' pour la vision globale, "
+                        "ou 'teamdata-291012.ops.box_shipments' / 'teamdata-291012.ops.shop_shipments' "
+                        "si besoin de détail."
+                    )
+                }
             },
             "required": ["query"]
         }
     },
     {
         "name": "query_crm",
-        "description": "SQL sur normalised-417010.crm.crm_data_detailed_by_user",
+        "description": (
+            "Exécute une requête SQL sur normalised-417010.crm.crm_data_detailed_by_user. "
+            "À utiliser pour les emails/messages CRM, interactions clients."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string"}
+                "query": {
+                    "type": "string",
+                    "description": "La requête SQL à exécuter (crm.crm_data_detailed_by_user)."
+                }
             },
             "required": ["query"]
         }
     },
     {
         "name": "search_notion",
-        "description": "Recherche Notion par mot-clé",
+        "description": (
+            "Recherche des pages ou databases dans Notion par mot-clé. "
+            "Utilise cet outil pour retrouver de la doc, des process, ou une page d'analyse existante."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string"},
+                "query": {
+                    "type": "string",
+                    "description": "Texte libre à chercher dans Notion (titre, contenu)."
+                },
                 "object_type": {
                     "type": "string",
                     "enum": ["page", "database"],
-                    "default": "page"
+                    "default": "page",
+                    "description": "Chercher des pages ou des databases."
                 }
             },
             "required": ["query"]
@@ -280,11 +398,17 @@ TOOLS = [
     },
     {
         "name": "read_notion_page",
-        "description": "Lit une page Notion",
+        "description": (
+            "Lit le contenu d'une page Notion (titre et paragraphes principaux). "
+            "Utilise cet outil pour résumer ou citer une doc interne."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "page_id": {"type": "string"}
+                "page_id": {
+                    "type": "string",
+                    "description": "ID Notion de la page à lire (extrait de l'URL Notion)."
+                }
             },
             "required": ["page_id"]
         }
@@ -292,8 +416,15 @@ TOOLS = [
     {
         "name": "save_analysis_to_notion",
         "description": (
-            "Crée une page d'analyse dans Notion sous la page 'Franck Data'. "
-            "À utiliser pour archiver une question business avec le prompt utilisateur et la requête SQL finale."
+            "Crée une nouvelle page d'analyse métier dans Notion sous une page parente "
+            "(par ex. 'Franck Data'). "
+            "Cette page inclut automatiquement : "
+            "- le titre business, "
+            "- le prompt métier (question de l'utilisateur), "
+            "- la requête SQL finale, "
+            "- des notes standard, "
+            "- et un emoji de page. "
+            "Utiliser cet outil pour archiver une analyse que tu viens de produire."
         ),
         "input_schema": {
             "type": "object",
@@ -304,21 +435,10 @@ TOOLS = [
                 },
                 "title": {
                     "type": "string",
-                    "description": "Titre business clair, ex: 'Calendrier de l'avent FR 2025 vs 2024'."
-                },
-                "user_prompt": {
-                    "type": "string",
-                    "description": "La question posée par l'utilisateur."
-                },
-                "sql_query": {
-                    "type": "string",
-                    "description": "La requête SQL finale utilisée pour l'analyse."
-                }
-            },
-            "required": ["parent_page_id", "title", "user_prompt", "sql_query"]
-        }
-    }
-]
+                    "description": (
+                        "Titre business clair. "
+                        "Exemple : \"Optins CTC par pays avec profil beauté renseig
+
 
 
 # ---------------------------------------
@@ -728,6 +848,12 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         return execute_bigquery(tool_input["query"], thread_ts, project)
     elif tool_name == "search_notion":
         return search_notion(tool_input["query"], tool_input.get("object_type", "page"))
+    elif tool_name == "append_table_to_notion_page":
+        return append_table_to_notion_page(
+            tool_input["page_id"],
+            tool_input["headers"],
+            tool_input["rows"]
+        )
     elif tool_name == "read_notion_page":
         return read_notion_page(tool_input["page_id"])
     else:
