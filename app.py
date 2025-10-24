@@ -514,37 +514,73 @@ def create_analysis_page(parent_id: str, title: str, user_prompt: str, sql_query
     return create_notion_page(parent_id, title, content)
         
 def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
-    """Crée une nouvelle page Notion sous une page parente."""
+    """Crée une nouvelle page Notion sous une page parente (supporte titres et blocs code SQL)."""
     if not notion_client:
         return "❌ Notion non configuré."
 
     try:
-        # on découpe le contenu en paragraphes pour Notion
         children_blocks = []
         for para in content.split("\n\n"):
             para = para.strip()
             if not para:
                 continue
-            children_blocks.append({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [
-                        {
-                            "type": "text",
-                            "text": {"content": para[:2000]}
-                        }
-                    ]
-                }
-            })
+
+            # Si le paragraphe commence par un titre markdown
+            if para.startswith("# "):
+                children_blocks.append({
+                    "object": "block",
+                    "type": "heading_1",
+                    "heading_1": {"rich_text": [{"type": "text", "text": {"content": para[2:].strip()}}]}
+                })
+            elif para.startswith("## "):
+                children_blocks.append({
+                    "object": "block",
+                    "type": "heading_2",
+                    "heading_2": {"rich_text": [{"type": "text", "text": {"content": para[3:].strip()}}]}
+                })
+            elif para.startswith("### "):
+                children_blocks.append({
+                    "object": "block",
+                    "type": "heading_3",
+                    "heading_3": {"rich_text": [{"type": "text", "text": {"content": para[4:].strip()}}]}
+                })
+            # Bloc de code SQL propre
+            elif para.startswith("```sql"):
+                sql_code = para.replace("```sql", "").replace("```", "").strip()
+                children_blocks.append({
+                    "object": "block",
+                    "type": "code",
+                    "code": {
+                        "language": "sql",
+                        "rich_text": [{"type": "text", "text": {"content": sql_code[:2000]}}]
+                    }
+                })
+            # Bloc de code générique
+            elif para.startswith("```"):
+                generic_code = para.replace("```", "").strip()
+                children_blocks.append({
+                    "object": "block",
+                    "type": "code",
+                    "code": {
+                        "language": "plain text",
+                        "rich_text": [{"type": "text", "text": {"content": generic_code[:2000]}}]
+                    }
+                })
+            # Texte normal
+            else:
+                children_blocks.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"type": "text", "text": {"content": para[:2000]}}]
+                    }
+                })
 
         new_page = notion_client.pages.create(
             parent={"page_id": parent_id},
             properties={
                 "title": {
-                    "title": [{
-                        "text": {"content": title[:100]}
-                    }]
+                    "title": [{"text": {"content": title[:100]}}]
                 }
             },
             children=children_blocks
@@ -554,11 +590,12 @@ def create_notion_page(parent_id: str, title: str, content: str = "") -> str:
             "success": True,
             "page_id": new_page["id"],
             "url": new_page["url"],
-            "message": f"Page '{title}' créée avec succès"
+            "message": f"✅ Page '{title}' créée avec succès"
         }, ensure_ascii=False, indent=2)
 
     except Exception as e:
         return f"❌ Erreur création page: {str(e)[:300]}"
+
 
 def search_notion(query: str, object_type: str = "page") -> str:
     if not notion_client:
