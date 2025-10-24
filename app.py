@@ -437,8 +437,61 @@ TOOLS = [
                     "type": "string",
                     "description": (
                         "Titre business clair. "
-                        "Exemple : \"Optins CTC par pays avec profil beauté renseig
-
+                        "Exemple : \"Optins CTC par pays avec profil beauté renseigné\" "
+                        "ou \"Calendrier Avent FR 2025 : repeat rate vs 2024\"."
+                    )
+                },
+                "user_prompt": {
+                    "type": "string",
+                    "description": "La question exacte posée par l'utilisateur en langage naturel."
+                },
+                "sql_query": {
+                    "type": "string",
+                    "description": "La requête SQL finale utilisée pour répondre."
+                }
+            },
+            "required": ["parent_page_id", "title", "user_prompt", "sql_query"]
+        }
+    },
+    {
+        "name": "append_table_to_notion_page",
+        "description": (
+            "Ajoute un tableau (bloc table Notion) dans une page Notion existante. "
+            "À utiliser pour insérer des résultats agrégés (ex: par pays : nb clients optin, "
+            "taux profil beauté complet, etc.). "
+            "Important : tu ne dois pas prétendre avoir ajouté un tableau si cet outil "
+            "n'a pas été réellement appelé."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "ID Notion de la page à enrichir (celle précédemment créée)."
+                },
+                "headers": {
+                    "type": "array",
+                    "description": "Les noms de colonnes du tableau (ordre des colonnes).",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "rows": {
+                    "type": "array",
+                    "description": (
+                        "Lignes du tableau. "
+                        "Chaque ligne est une liste de chaînes (une cellule par colonne)."
+                    ),
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                }
+            },
+            "required": ["page_id", "headers", "rows"]
+        }
+    }
+]
 
 
 # ---------------------------------------
