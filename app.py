@@ -183,6 +183,42 @@ def append_table_to_notion_page(page_id: str, headers: List[str], rows: List[Lis
 
     except Exception as e:
         return f"❌ Erreur ajout tableau Notion: {str(e)[:300]}"
+def append_markdown_table_to_page(page_id: str, headers: List[str], rows: List[List[str]]) -> str:
+    """
+    Fallback : insère le tableau en Markdown (| col | ...) dans la page Notion,
+    sous forme de bloc 'code' (plain text). C'est garanti visible même si le bloc 'table' échoue.
+    """
+    if not notion_client:
+        return "❌ Notion non configuré."
+
+    try:
+        header_line = "| " + " | ".join(headers) + " |"
+        sep_line = "| " + " | ".join(["---"] * len(headers)) + " |"
+        data_lines = ["| " + " | ".join(str(c) for c in row) + " |" for row in rows]
+        table_md = "\n".join([header_line, sep_line] + data_lines)
+
+        notion_client.blocks.children.append(
+            block_id=page_id,
+            children=[
+                {
+                    "object": "block",
+                    "type": "code",
+                    "code": {
+                        "language": "plain text",
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": table_md[:2000]}
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        return json.dumps({"success": True, "message": "✅ Tableau ajouté en fallback Markdown."}, ensure_ascii=False)
+
+    except Exception as e:
+        return f"❌ Erreur fallback Markdown: {str(e)[:300]}"
 
 def read_notion_page(page_id: str) -> str:
     if not notion_client:
@@ -260,6 +296,11 @@ def get_system_prompt() -> str:
         "RÈGLE DATES :\n"
         "- Utilise CURRENT_DATE('Europe/Paris') / CURRENT_DATETIME('Europe/Paris')\n"
         "- Pas de dates en dur si l'utilisateur dit 'aujourd'hui', 'hier', 'ce mois'.\n"
+        "RÈGLE NOTION :"
+        "- Si tu dis que tu ajoutes un tableau dans Notion, tu dois appeler l'outil append_table_to_notion_page."
+        "- Si cet outil échoue, ton fallback automatique ajoute un bloc Markdown avec le tableau."
+        "- Tu n'as plus le droit de dire "Je ne peux pas modifier une page existante" : maintenant tu peux."
+
         "\n"
         "RÈGLE SORTIE LONGUE :\n"
         "- Si le résultat dépasse 50 lignes ou ~1500 caractères :\n"
@@ -922,16 +963,19 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         )
 
     elif tool_name == "append_table_to_notion_page":
-        # insère un bloc table natif dans une page Notion existante
         page_id = tool_input["page_id"]
         headers = tool_input["headers"]
-        rows    = tool_input["rows"]
+        rows = tool_input["rows"]
+    
+        result = append_table_to_notion_page(page_id, headers, rows)
+    
+        # Si Notion refuse le bloc table → fallback Markdown
+        if isinstance(result, str) and result.startswith("❌"):
+            print("⚠️ Bloc 'table' refusé par Notion, fallback Markdown.")
+            return append_markdown_table_to_page(page_id, headers, rows)
+    
+        return result
 
-        return append_table_to_notion_page(
-            page_id=page_id,
-            headers=headers,
-            rows=rows
-        )
 
     else:
         return f"❌ Tool inconnu: {tool_name}"
