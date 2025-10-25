@@ -299,7 +299,7 @@ def get_system_prompt() -> str:
         "RÈGLE NOTION :"
         "- Si tu dis que tu ajoutes un tableau dans Notion, tu dois appeler l'outil append_table_to_notion_page."
         "- Si cet outil échoue, ton fallback automatique ajoute un bloc Markdown avec le tableau."
-        "- Tu n'as plus le droit de dire Je ne peux pas modifier une page existante : maintenant tu peux."
+        "- Tu n'as plus le droit de dire Je ne peux pas modifier une page existante : maintenant tu peux.  ta page franck data et elle peut servir de page par défaut quand on te demande d'ajouter a notion sans précision: Franck-Data-2964d42a385b8010ab39f742a68d940a"
         "\n"
         "RÈGLE SORTIE LONGUE :\n"
         "- Si le résultat dépasse 50 lignes ou ~1500 caractères :\n"
