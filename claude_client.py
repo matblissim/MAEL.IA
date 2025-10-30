@@ -1,0 +1,182 @@
+# claude_client.py
+"""Interface avec Claude (Anthropic API)."""
+
+import time
+from typing import List
+from anthropic import APIError
+from config import (
+    claude,
+    ANTHROPIC_MODEL,
+    ANTHROPIC_IN_PRICE,
+    ANTHROPIC_OUT_PRICE,
+    MAX_TOOL_CHARS
+)
+from thread_memory import (
+    get_thread_history,
+    add_to_thread_history,
+    clear_last_queries,
+    get_last_queries
+)
+from tools_definitions import TOOLS, execute_tool
+
+
+def log_claude_usage(resp, *, label="CLAUDE"):
+    """Log l'utilisation et le coût d'un appel Claude."""
+    u = getattr(resp, "usage", None)
+    if u is None:
+        print(f"[{label}] usage: non fourni par l'API")
+        return
+
+    in_tok  = getattr(u, "input_tokens", 0)
+    out_tok = getattr(u, "output_tokens", 0)
+    cache_create = getattr(u, "cache_creation_input_tokens", 0)
+    cache_read   = getattr(u, "cache_read_input_tokens", 0)
+
+    cost_in  = (in_tok  / 1000.0) * ANTHROPIC_IN_PRICE
+    cost_out = (out_tok / 1000.0) * ANTHROPIC_OUT_PRICE
+
+    if cache_create or cache_read:
+        base_in       = (max(in_tok - cache_create - cache_read, 0) / 1000.0) * ANTHROPIC_IN_PRICE
+        cache_write_c = (cache_create / 1000.0) * ANTHROPIC_IN_PRICE * 1.25
+        cache_read_c  = (cache_read   / 1000.0) * ANTHROPIC_IN_PRICE * 0.10
+        cost_in = base_in + cache_write_c + cache_read_c
+
+    total = cost_in + cost_out
+    print(f"[{label}] usage: in={in_tok} tok, out={out_tok} tok"
+          + (f", cache_write={cache_create} tok, cache_read={cache_read} tok" if cache_create or cache_read else ""))
+    print(f"[{label}] cost: input≈${cost_in:.4f}, output≈${cost_out:.4f}, total≈${total:.4f}")
+
+
+def get_system_prompt(context: str = "") -> str:
+    """Génère le prompt système pour Claude."""
+    base = (
+        "Tu es FRANCK. Réponds en français, brièvement, poli (surtout avec frédéric) et avec humour uniquement si demandé.\n"
+        "Tu es ingénieur (MIT + X 2022), mais toujours moins bon que @mathieu ;).\n"
+        "\n"
+        "Tu as accès à BigQuery et Notion via des tools.\n"
+        "\n"
+        "IMPORTANT - Formatage Slack :\n"
+        "- Pour le gras, utilise *un seul astérisque* : *texte en gras*\n"
+        "- Pour l'italique, utilise _underscore_ : _texte en italique_\n"
+        "- Pour les listes à puces : • ou -\n"
+        "- Blocs de code SQL avec ```sql\n"
+        "- N'utilise JAMAIS **double astérisque**\n"
+        "\n"
+        "RÈGLE DATES :\n"
+        "- Utilise CURRENT_DATE('Europe/Paris') / CURRENT_DATETIME('Europe/Paris')\n"
+        "- Pas de dates en dur si l'utilisateur dit 'aujourd'hui', 'hier', 'ce mois'.\n"
+        "RÈGLE NOTION :"
+        "- Si tu dis que tu ajoutes un tableau dans Notion, tu dois appeler l'outil append_table_to_notion_page."
+        "- Si cet outil échoue, ton fallback automatique ajoute un bloc Markdown avec le tableau."
+        "- Tu n'as plus le droit de dire Je ne peux pas modifier une page existante : maintenant tu peux.  ta page franck data et elle peut servir de page par défaut quand on te demande d'ajouter a notion sans précision: Franck-Data-2964d42a385b8010ab39f742a68d940a"
+        "\n"
+        "RÈGLE SORTIE LONGUE :\n"
+        "- Si le résultat dépasse 50 lignes ou ~1500 caractères :\n"
+        "  → ne colle pas le listing complet ;\n"
+        "  quand on te dit ajoute ca a notion, c'est dans la page Franck data tu crees une sous page avec la question, le thread et les infos, voire un résumé data"
+        "  → donne un résumé (compte + colonnes clés) et la requête SQL ;\n"
+        "Après chaque tool_use, produis une conclusion synthétique (1–3 lignes) avec un pourcentage clair et la population de référence."
+        "  → propose export si besoin.\n"
+        "\n"
+        "ROUTAGE TOOLS :\n"
+        "- 'review'/'avis' → query_reviews (normalised-417010.reviews.reviews_by_user)\n"
+        "- 'email'/'message'/'crm' → query_crm (normalised-417010.crm.crm_data_detailed_by_user)\n"
+        "- 'expédition'/'shipment'/'livraison'/'logistique' → query_ops\n"
+        "- Tout le reste (ventes, clients, box) → query_bigquery\n"
+    )
+    return base + ("\n\n" + context if context else "")
+
+
+def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int = 3) -> str:
+    """Envoie une requête à Claude et gère les outils."""
+    for attempt in range(max_retries):
+        try:
+            history = get_thread_history(thread_ts)
+            messages = history.copy()
+            messages.append({"role": "user", "content": prompt})
+            clear_last_queries(thread_ts)
+
+            # Prompt Caching : contexte lourd en bloc caché (éphemeral)
+            system_blocks = [
+                {"type": "text", "text": get_system_prompt(context).split("\n\n# DOCUMENTATION")[0]},
+            ]
+            # Ajoute CONTEXT caché seulement s'il existe
+            if context:
+                system_blocks.append({"type": "text", "text": context, "cache_control": {"type": "ephemeral"}})
+
+            response = claude.messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=2048,
+                system=system_blocks,
+                tools=TOOLS,
+                messages=messages
+            )
+            log_claude_usage(response)
+
+            iteration = 0
+            while response.stop_reason == "tool_use" and iteration < 10:
+                iteration += 1
+                messages.append({"role": "assistant", "content": response.content})
+
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        result = execute_tool(block.name, block.input, thread_ts)
+                        # Tronquage défensif pour éviter d'inonder le modèle
+                        if isinstance(result, str) and len(result) > MAX_TOOL_CHARS:
+                            result = result[:MAX_TOOL_CHARS] + " …\n(Contenu tronqué)"
+                        tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
+
+                messages.append({"role": "user", "content": tool_results})
+
+                response = claude.messages.create(
+                    model=ANTHROPIC_MODEL,
+                    max_tokens=2048,
+                    system=system_blocks,
+                    tools=TOOLS,
+                    messages=messages
+                )
+                log_claude_usage(response)
+
+            final_text_parts = []
+            for block in response.content:
+                if getattr(block, "type", "") == "text" and getattr(block, "text", "").strip():
+                    final_text_parts.append(block.text.strip())
+            final_text = "\n".join(final_text_parts).strip()
+            if not final_text:
+                final_text = "🤔 Hmm, je n'ai pas de réponse claire."
+
+            add_to_thread_history(thread_ts, "user", prompt)
+            add_to_thread_history(thread_ts, "assistant", final_text)
+            return final_text
+
+        except APIError as e:
+            msg = str(e)
+            if "529" in msg or "overloaded" in msg.lower():
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 2
+                    print(f"⚠️ API surchargée, retry {attempt + 1}/{max_retries} dans {wait_time}s…")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    return "⚠️ L'API est temporairement surchargée. Réessaie dans quelques minutes."
+            elif "timeout" in msg.lower():
+                return "⏱️ Désolé, ma requête a pris trop de temps. Peux-tu reformuler ou simplifier ?"
+            elif "rate" in msg.lower() or "limit" in msg.lower():
+                return "🚦 Limite d'API atteinte. Réessaie dans quelques secondes."
+            else:
+                return f"⚠️ Erreur technique : {msg[:200]}"
+        except Exception as e:
+            return f"⚠️ Erreur inattendue : {str(e)[:200]}"
+
+    return "⚠️ Impossible de joindre le modèle après plusieurs tentatives."
+
+
+def format_sql_queries(queries: List[str]) -> str:
+    """Formate les requêtes SQL pour affichage dans Slack."""
+    if not queries:
+        return ""
+    result = "\n\n*📊 Requête(s) SQL utilisée(s) :*"
+    for q in queries:
+        result += f"\n```sql\n{q.strip()}\n```"
+    return result
