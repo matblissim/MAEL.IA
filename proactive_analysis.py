@@ -167,10 +167,10 @@ def extract_table_from_query(sql_query: str) -> Optional[str]:
     return None
 
 
-def get_table_columns(client, table_ref: str) -> List[str]:
+def get_table_columns(client, table_ref: str) -> List[Tuple[str, str]]:
     """
     Récupère les colonnes disponibles d'une table via INFORMATION_SCHEMA.
-    Retourne une liste de noms de colonnes en lowercase.
+    Retourne une liste de (column_name, data_type).
     """
     try:
         # Parser table_ref
@@ -184,28 +184,114 @@ def get_table_columns(client, table_ref: str) -> List[str]:
         else:
             return []
 
-        # Requête INFORMATION_SCHEMA
+        # Requête INFORMATION_SCHEMA avec types
         query = f"""
-        SELECT column_name
+        SELECT column_name, data_type
         FROM `{project_id}.{dataset_id}.INFORMATION_SCHEMA.COLUMNS`
         WHERE table_name = '{table_id}'
+        ORDER BY ordinal_position
         """
 
         job = client.query(query)
         results = list(job.result(timeout=10))
 
-        # Retourner les noms de colonnes en lowercase
-        return [row.column_name.lower() for row in results]
+        # Retourner (nom, type)
+        return [(row.column_name, row.data_type) for row in results]
 
     except Exception as e:
         print(f"[Proactive] Erreur récupération colonnes pour {table_ref}: {e}")
         return []
 
 
+def is_likely_dimension_column(column_name: str, data_type: str) -> bool:
+    """
+    Détermine si une colonne est probablement une dimension pertinente.
+    Exclut les IDs, clés, dates, métriques numériques.
+    """
+    col_lower = column_name.lower()
+
+    # Types acceptés pour les dimensions
+    dimension_types = ["STRING", "INT64", "INTEGER", "BOOL", "BOOLEAN"]
+    if data_type not in dimension_types:
+        return False
+
+    # Exclusions : IDs, clés, dates, timestamps
+    exclusions = [
+        "_id", "_key", "id_", "key_",
+        "_date", "_time", "date_", "time_",
+        "_at", "_timestamp", "created_", "updated_",
+        "_uuid", "_hash", "_token"
+    ]
+
+    for exclusion in exclusions:
+        if exclusion in col_lower:
+            return False
+
+    return True
+
+
+def auto_discover_dimensions(columns_with_types: List[Tuple[str, str]], max_dimensions: int = 10) -> List[str]:
+    """
+    Découvre automatiquement les dimensions pertinentes parmi toutes les colonnes.
+    Retourne les colonnes qui sont probablement des dimensions intéressantes.
+
+    Args:
+        columns_with_types: Liste de (column_name, data_type)
+        max_dimensions: Nombre max de dimensions à retourner
+
+    Returns:
+        Liste de noms de colonnes pertinentes
+    """
+    # Mots-clés qui indiquent une dimension pertinente (boost de priorité)
+    priority_keywords = [
+        "country", "pays",
+        "type", "category", "categorie",
+        "channel", "canal", "source",
+        "status", "statut", "state",
+        "segment", "group", "groupe",
+        "name", "nom",
+        "box", "product", "produit",
+        "acquisition", "origin", "origine"
+    ]
+
+    candidates = []
+
+    for col_name, data_type in columns_with_types:
+        # Filtrer d'abord par type et exclusions
+        if not is_likely_dimension_column(col_name, data_type):
+            continue
+
+        # Calculer un score de pertinence
+        col_lower = col_name.lower()
+        score = 0
+
+        # Boost si contient un mot-clé prioritaire
+        for keyword in priority_keywords:
+            if keyword in col_lower:
+                score += 10
+
+        # Pénalité pour colonnes avec beaucoup d'underscores (souvent des colonnes techniques)
+        underscore_count = col_name.count('_')
+        if underscore_count > 4:
+            score -= 5
+
+        # Boost pour colonnes courtes (souvent plus simples et pertinentes)
+        if len(col_name) < 20:
+            score += 2
+
+        candidates.append((col_name, score))
+
+    # Trier par score décroissant
+    candidates.sort(key=lambda x: x[1], reverse=True)
+
+    # Retourner les top N
+    return [col_name for col_name, score in candidates[:max_dimensions]]
+
+
 def match_dimension_to_column(dimension: str, available_columns: List[str]) -> Optional[str]:
     """
     Trouve la colonne réelle qui correspond à une dimension souhaitée.
-    Utilise des patterns de matching intelligent.
+    Utilise un matching fuzzy beaucoup plus permissif.
 
     Args:
         dimension: Nom de dimension souhaité (ex: "country")
@@ -226,16 +312,47 @@ def match_dimension_to_column(dimension: str, available_columns: List[str]) -> O
     # 2. Match via patterns synonymes
     if dimension_lower in COLUMN_PATTERNS:
         for pattern in COLUMN_PATTERNS[dimension_lower]:
-            if pattern.lower() in available_lower:
-                idx = available_lower.index(pattern.lower())
+            pattern_lower = pattern.lower()
+            # Match exact du pattern
+            if pattern_lower in available_lower:
+                idx = available_lower.index(pattern_lower)
                 return available_columns[idx]
 
-    # 3. Match partiel (contient le mot)
-    for col in available_columns:
-        col_lower = col.lower()
-        # Si la dimension est contenue dans le nom de colonne
-        if dimension_lower in col_lower or col_lower in dimension_lower:
-            return col
+            # Match partiel : pattern contenu dans colonne (avec préfixes dw_, dim_, etc.)
+            for i, col_lower in enumerate(available_lower):
+                if pattern_lower in col_lower:
+                    return available_columns[i]
+
+    # 3. Match fuzzy : extraire les mots-clés de la dimension
+    # Ex: "acquisition_source" → ["acquisition", "source"]
+    dimension_words = set(re.split(r'[_\s-]', dimension_lower))
+    dimension_words = {w for w in dimension_words if len(w) > 2}  # Mots > 2 caractères
+
+    if dimension_words:
+        best_match = None
+        best_score = 0
+
+        for i, col in enumerate(available_columns):
+            col_lower = col.lower()
+            col_words = set(re.split(r'[_\s-]', col_lower))
+
+            # Compter les mots en commun
+            common_words = dimension_words & col_words
+            score = len(common_words)
+
+            # Boost si dimension_word est contenu dans un col_word
+            for dim_word in dimension_words:
+                for col_word in col_words:
+                    if dim_word in col_word or col_word in dim_word:
+                        score += 0.5
+
+            if score > best_score:
+                best_score = score
+                best_match = col
+
+        # Accepter le match si score > 0
+        if best_score > 0:
+            return best_match
 
     return None
 
@@ -243,16 +360,18 @@ def match_dimension_to_column(dimension: str, available_columns: List[str]) -> O
 def get_validated_dimensions(
     client,
     sql_query: str,
-    desired_dimensions: List[Tuple[str, str]]
+    desired_dimensions: List[Tuple[str, str]],
+    use_auto_discovery: bool = True
 ) -> List[Tuple[str, str]]:
     """
     Valide les dimensions souhaitées contre les colonnes réelles de la table.
-    Retourne uniquement les dimensions qui existent vraiment.
+    Peut aussi découvrir automatiquement les dimensions pertinentes.
 
     Args:
         client: Client BigQuery
         sql_query: Requête SQL originale
-        desired_dimensions: Liste de (dimension_name, label)
+        desired_dimensions: Liste de (dimension_name, label) souhaitée
+        use_auto_discovery: Si True, découvre automatiquement des dimensions supplémentaires
 
     Returns:
         Liste de (real_column_name, label) pour les dimensions validées
@@ -265,23 +384,48 @@ def get_validated_dimensions(
 
     print(f"[Proactive] Table détectée : {table_ref}")
 
-    # Récupérer les colonnes disponibles
-    available_columns = get_table_columns(client, table_ref)
-    if not available_columns:
+    # Récupérer les colonnes disponibles avec leurs types
+    columns_with_types = get_table_columns(client, table_ref)
+    if not columns_with_types:
         print("[Proactive] Aucune colonne récupérée via INFORMATION_SCHEMA")
         return []
 
-    print(f"[Proactive] Colonnes disponibles : {len(available_columns)}")
+    print(f"[Proactive] Colonnes disponibles : {len(columns_with_types)}")
 
-    # Matcher chaque dimension souhaitée avec une colonne réelle
+    # Extraire juste les noms pour le matching
+    available_column_names = [col_name for col_name, _ in columns_with_types]
+
     validated = []
+
+    # 1. Essayer de matcher les dimensions souhaitées
     for dimension, label in desired_dimensions:
-        real_column = match_dimension_to_column(dimension, available_columns)
+        real_column = match_dimension_to_column(dimension, available_column_names)
         if real_column:
             validated.append((real_column, label))
             print(f"[Proactive] ✓ Match : {dimension} → {real_column}")
         else:
             print(f"[Proactive] ✗ Pas de match pour : {dimension}")
+
+    # 2. Auto-discovery : si pas assez de matches, découvrir des dimensions automatiquement
+    if use_auto_discovery and len(validated) < 3:
+        print("[Proactive] Auto-discovery : recherche de dimensions supplémentaires...")
+
+        # Découvrir les dimensions pertinentes
+        discovered = auto_discover_dimensions(columns_with_types, max_dimensions=5)
+
+        # Ajouter celles qui ne sont pas déjà dans validated
+        validated_names = {col_name for col_name, _ in validated}
+
+        for col_name in discovered:
+            if col_name not in validated_names:
+                # Générer un label lisible à partir du nom de colonne
+                label = col_name.replace('_', ' ').replace('dw ', '').title()
+                validated.append((col_name, label))
+                print(f"[Proactive] 🔍 Auto-découverte : {col_name} ({label})")
+
+                # Limiter à 3 dimensions au total
+                if len(validated) >= 3:
+                    break
 
     return validated
 
