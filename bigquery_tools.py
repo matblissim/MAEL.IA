@@ -3,6 +3,9 @@
 
 import os
 import json
+import re
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from config import (
     bq_client,
     bq_client_normalized,
@@ -31,6 +34,226 @@ def _enforce_limit(q: str) -> str:
     if q_low.startswith("select") and " limit " not in q_low:
         return q.rstrip().rstrip(";") + f"\nLIMIT {MAX_ROWS + 1}"
     return q
+
+
+def _detect_aggregation(query: str) -> bool:
+    """Détecte si la requête contient des agrégations (COUNT, SUM, AVG, etc.)."""
+    q_upper = query.upper()
+    aggregations = ['COUNT(', 'SUM(', 'AVG(', 'MAX(', 'MIN(', 'COUNTIF(', 'ROUND(SUM(', 'ROUND(AVG(']
+    return any(agg in q_upper for agg in aggregations)
+
+
+def _extract_date_range(query: str):
+    """
+    Extrait les filtres de date d'une requête SQL.
+    Retourne (date_column, start_date, end_date) ou (None, None, None).
+    """
+    # Chercher les patterns BETWEEN ... AND ...
+    # Format: column BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
+    between_pattern = r"(\w+)\s+BETWEEN\s+'(\d{4}-\d{2}-\d{2})'\s+AND\s+'(\d{4}-\d{2}-\d{2})'"
+    match = re.search(between_pattern, query, re.IGNORECASE)
+    if match:
+        return match.group(1), match.group(2), match.group(3)
+
+    # Chercher les patterns >= et <=
+    # Format: column >= 'YYYY-MM-DD' AND column <= 'YYYY-MM-DD'
+    gte_pattern = r"(\w+)\s*>=\s*'(\d{4}-\d{2}-\d{2})'"
+    lte_pattern = r"(\w+)\s*<=\s*'(\d{4}-\d{2}-\d{2})'"
+
+    gte_match = re.search(gte_pattern, query, re.IGNORECASE)
+    lte_match = re.search(lte_pattern, query, re.IGNORECASE)
+
+    if gte_match and lte_match and gte_match.group(1).lower() == lte_match.group(1).lower():
+        return gte_match.group(1), gte_match.group(2), lte_match.group(2)
+
+    # Chercher un seul date = 'YYYY-MM-DD'
+    eq_pattern = r"(\w+)\s*=\s*'(\d{4}-\d{2}-\d{2})'"
+    eq_match = re.search(eq_pattern, query, re.IGNORECASE)
+    if eq_match:
+        return eq_match.group(1), eq_match.group(2), eq_match.group(2)
+
+    return None, None, None
+
+
+def _generate_comparison_query(original_query: str, date_column: str, new_start: str, new_end: str) -> str:
+    """Génère une requête de comparaison en remplaçant les dates."""
+    # Remplacer BETWEEN
+    between_pattern = r"(\w+)\s+BETWEEN\s+'(\d{4}-\d{2}-\d{2})'\s+AND\s+'(\d{4}-\d{2}-\d{2})'"
+    new_query = re.sub(
+        between_pattern,
+        f"{date_column} BETWEEN '{new_start}' AND '{new_end}'",
+        original_query,
+        flags=re.IGNORECASE
+    )
+    if new_query != original_query:
+        return new_query
+
+    # Remplacer >= et <=
+    new_query = original_query
+    new_query = re.sub(
+        r"(\w+)\s*>=\s*'(\d{4}-\d{2}-\d{2})'",
+        f"{date_column} >= '{new_start}'",
+        new_query,
+        flags=re.IGNORECASE
+    )
+    new_query = re.sub(
+        r"(\w+)\s*<=\s*'(\d{4}-\d{2}-\d{2})'",
+        f"{date_column} <= '{new_end}'",
+        new_query,
+        flags=re.IGNORECASE
+    )
+    if new_query != original_query:
+        return new_query
+
+    # Remplacer =
+    new_query = re.sub(
+        r"(\w+)\s*=\s*'(\d{4}-\d{2}-\d{2})'",
+        f"{date_column} = '{new_start}'",
+        original_query,
+        flags=re.IGNORECASE
+    )
+
+    return new_query
+
+
+def _calculate_previous_periods(start_date_str: str, end_date_str: str):
+    """
+    Calcule les périodes précédentes pour MoM, QoQ, YoY.
+    Retourne un dict avec les comparaisons à faire.
+    """
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+
+        delta_days = (end_date - start_date).days
+
+        comparisons = {}
+
+        # YoY (Year over Year) - toujours pertinent
+        yoy_start = start_date - relativedelta(years=1)
+        yoy_end = end_date - relativedelta(years=1)
+        comparisons['YoY'] = {
+            'label': f'Même période année précédente ({yoy_start.strftime("%Y-%m-%d")} → {yoy_end.strftime("%Y-%m-%d")})',
+            'start': yoy_start.strftime('%Y-%m-%d'),
+            'end': yoy_end.strftime('%Y-%m-%d')
+        }
+
+        # Détecter le type de période
+        if delta_days == 0:  # Un seul jour
+            # MoM = même jour mois précédent
+            mom_date = start_date - relativedelta(months=1)
+            comparisons['MoM'] = {
+                'label': f'Mois précédent ({mom_date.strftime("%Y-%m-%d")})',
+                'start': mom_date.strftime('%Y-%m-%d'),
+                'end': mom_date.strftime('%Y-%m-%d')
+            }
+        elif 28 <= delta_days <= 31:  # Un mois
+            # MoM = mois précédent
+            mom_start = start_date - relativedelta(months=1)
+            mom_end = end_date - relativedelta(months=1)
+            comparisons['MoM'] = {
+                'label': f'Mois précédent ({mom_start.strftime("%Y-%m-%d")} → {mom_end.strftime("%Y-%m-%d")})',
+                'start': mom_start.strftime('%Y-%m-%d'),
+                'end': mom_end.strftime('%Y-%m-%d')
+            }
+        elif 89 <= delta_days <= 92:  # Un trimestre
+            # QoQ = trimestre précédent
+            qoq_start = start_date - relativedelta(months=3)
+            qoq_end = end_date - relativedelta(months=3)
+            comparisons['QoQ'] = {
+                'label': f'Trimestre précédent ({qoq_start.strftime("%Y-%m-%d")} → {qoq_end.strftime("%Y-%m-%d")})',
+                'start': qoq_start.strftime('%Y-%m-%d'),
+                'end': qoq_end.strftime('%Y-%m-%d')
+            }
+        else:  # Autre période
+            # Période précédente de même durée
+            prev_start = start_date - timedelta(days=delta_days + 1)
+            prev_end = end_date - timedelta(days=delta_days + 1)
+            comparisons['Prev'] = {
+                'label': f'Période précédente ({prev_start.strftime("%Y-%m-%d")} → {prev_end.strftime("%Y-%m-%d")})',
+                'start': prev_start.strftime('%Y-%m-%d'),
+                'end': prev_end.strftime('%Y-%m-%d')
+            }
+
+        return comparisons
+    except Exception as e:
+        print(f"[Comparisons] Erreur calcul périodes: {e}")
+        return {}
+
+
+def _execute_comparison_queries(client, original_query: str, date_column: str, comparisons: dict) -> dict:
+    """Exécute les requêtes de comparaison et retourne les résultats."""
+    results = {}
+
+    for comp_type, comp_info in comparisons.items():
+        try:
+            comp_query = _generate_comparison_query(
+                original_query,
+                date_column,
+                comp_info['start'],
+                comp_info['end']
+            )
+
+            # Exécuter la requête de comparaison
+            job = client.query(_enforce_limit(comp_query))
+            rows = list(job.result(timeout=TOOL_TIMEOUT_S))
+
+            if rows:
+                results[comp_type] = {
+                    'label': comp_info['label'],
+                    'data': dict(rows[0]) if rows else {}
+                }
+        except Exception as e:
+            print(f"[Comparisons] Erreur {comp_type}: {e}")
+            continue
+
+    return results
+
+
+def _format_with_comparisons(main_results: list, comparison_results: dict) -> str:
+    """Formate les résultats avec les comparaisons."""
+    if not main_results or not comparison_results:
+        return None
+
+    output_lines = []
+    output_lines.append("📊 **RÉSULTATS AVEC COMPARAISONS AUTOMATIQUES**\n")
+
+    # Résultat principal
+    main_row = main_results[0] if isinstance(main_results, list) else main_results
+    output_lines.append("**Période actuelle :**")
+
+    for key, value in main_row.items():
+        if isinstance(value, (int, float)):
+            output_lines.append(f"  • {key} : {value:,.2f}" if isinstance(value, float) else f"  • {key} : {value:,}")
+
+    output_lines.append("")
+
+    # Comparaisons
+    for comp_type, comp_data in comparison_results.items():
+        output_lines.append(f"**{comp_type}** — {comp_data['label']} :")
+
+        comp_row = comp_data['data']
+
+        # Calculer les variances
+        for key, main_value in main_row.items():
+            if isinstance(main_value, (int, float)) and key in comp_row:
+                comp_value = comp_row[key]
+                if isinstance(comp_value, (int, float)):
+                    variance = main_value - comp_value
+                    pct_change = (variance / comp_value * 100) if comp_value != 0 else 0
+
+                    # Formater avec symboles
+                    sign = "+" if variance >= 0 else ""
+                    arrow = "📈" if variance > 0 else "📉" if variance < 0 else "➡️"
+
+                    if isinstance(main_value, float):
+                        output_lines.append(f"  {arrow} {key} : {comp_value:,.2f} → {sign}{variance:,.2f} ({sign}{pct_change:.1f}%)")
+                    else:
+                        output_lines.append(f"  {arrow} {key} : {comp_value:,} → {sign}{variance:,} ({sign}{pct_change:.1f}%)")
+
+        output_lines.append("")
+
+    return "\n".join(output_lines)
 
 
 def describe_table(table_name: str) -> str:
@@ -87,7 +310,7 @@ def describe_table(table_name: str) -> str:
 
 
 def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> str:
-    """Exécute une requête SQL sur BigQuery."""
+    """Exécute une requête SQL sur BigQuery avec comparaisons automatiques MoM/YoY/QoQ."""
     # Import local pour éviter dépendance circulaire
     from thread_memory import add_query_to_thread
 
@@ -130,6 +353,36 @@ def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> st
             out += f"\n\n-- SQL utilisée (avec LIMIT auto)\n```sql\n{q}\n```"
             return out
 
+        # 🚀 NOUVELLE FONCTIONNALITÉ : COMPARAISONS AUTOMATIQUES
+        # Critères : requête avec agrégation + date filter + résultat petit (1-5 lignes)
+        auto_compare_enabled = os.getenv("AUTO_COMPARE", "true").lower() == "true"
+
+        if auto_compare_enabled and len(rows) > 0 and len(rows) <= 5:
+            has_aggregation = _detect_aggregation(query)
+            date_column, start_date, end_date = _extract_date_range(query)
+
+            if has_aggregation and date_column and start_date and end_date:
+                print(f"[Auto-Compare] Détecté : agrégation + date ({date_column}: {start_date} → {end_date})")
+
+                # Calculer les périodes de comparaison
+                comparisons = _calculate_previous_periods(start_date, end_date)
+
+                if comparisons:
+                    # Exécuter les requêtes de comparaison
+                    comparison_results = _execute_comparison_queries(client, query, date_column, comparisons)
+
+                    if comparison_results:
+                        # Formater avec comparaisons
+                        formatted_output = _format_with_comparisons(rows, comparison_results)
+
+                        if formatted_output:
+                            # Ajouter le JSON brut en bas pour référence
+                            formatted_output += "\n\n---\n**Données brutes (JSON) :**\n```json\n"
+                            formatted_output += json.dumps(rows, default=str, ensure_ascii=False, indent=2)
+                            formatted_output += "\n```"
+                            return formatted_output
+
+        # Sortie normale si pas de comparaisons
         out = json.dumps(rows, default=str, ensure_ascii=False, indent=2)
         if len(out) > MAX_TOOL_CHARS:
             out = out[:MAX_TOOL_CHARS] + " …\n\n-- SQL\n```sql\n{q}\n```"
