@@ -37,3 +37,21 @@ def clear_last_queries(thread_ts: str):
     """Efface les requêtes SQL d'un thread."""
     if thread_ts in LAST_QUERIES:
         LAST_QUERIES[thread_ts] = []
+
+
+def get_last_user_prompt(thread_ts: str) -> str:
+    """Récupère le dernier prompt utilisateur d'un thread."""
+    history = get_thread_history(thread_ts)
+    # Parcourir l'historique en sens inverse pour trouver le dernier message user
+    for msg in reversed(history):
+        if msg.get("role") == "user":
+            content = msg.get("content")
+            # Le content peut être une string ou une liste (si multi-modal)
+            if isinstance(content, str):
+                return content
+            elif isinstance(content, list):
+                # Extraire le texte des blocks
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        return block.get("text", "")
+    return ""

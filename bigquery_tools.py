@@ -310,9 +310,18 @@ def describe_table(table_name: str) -> str:
 
 
 def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> str:
-    """Exécute une requête SQL sur BigQuery avec comparaisons automatiques MoM/YoY/QoQ."""
+    """
+    Exécute une requête SQL sur BigQuery avec :
+    1. Analyse proactive multi-dimensionnelle (drill-downs automatiques)
+    2. Comparaisons automatiques MoM/YoY/QoQ
+    """
     # Import local pour éviter dépendance circulaire
-    from thread_memory import add_query_to_thread
+    from thread_memory import add_query_to_thread, get_last_user_prompt
+    from proactive_analysis import (
+        detect_analysis_context,
+        execute_drill_downs,
+        format_proactive_analysis
+    )
 
     client = bq_client_normalized if project == "normalized" else bq_client
     if not client:
@@ -353,8 +362,47 @@ def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> st
             out += f"\n\n-- SQL utilisée (avec LIMIT auto)\n```sql\n{q}\n```"
             return out
 
-        # 🚀 NOUVELLE FONCTIONNALITÉ : COMPARAISONS AUTOMATIQUES
+        # 🔍 NOUVELLE FONCTIONNALITÉ : ANALYSE PROACTIVE MULTI-DIMENSIONNELLE
+        # Franck creuse automatiquement les dimensions pertinentes selon le contexte
+        proactive_analysis_output = None
+        proactive_enabled = os.getenv("PROACTIVE_ANALYSIS", "true").lower() == "true"
+
+        if proactive_enabled and len(rows) > 0 and len(rows) <= 5:
+            has_aggregation = _detect_aggregation(query)
+
+            if has_aggregation:
+                # Récupérer le prompt utilisateur pour détecter le contexte
+                user_prompt = get_last_user_prompt(thread_ts)
+
+                # Détecter le contexte de l'analyse
+                context = detect_analysis_context(user_prompt, query)
+
+                if context:
+                    print(f"[Proactive] Contexte détecté : {context['type']} (score={context['score']})")
+                    print(f"[Proactive] Dimensions à explorer : {len(context['dimensions'])}")
+
+                    # Exécuter les drill-downs
+                    drill_down_results = execute_drill_downs(
+                        client,
+                        query,
+                        context["dimensions"],
+                        thread_ts,
+                        TOOL_TIMEOUT_S
+                    )
+
+                    if drill_down_results:
+                        # Formater l'analyse proactive
+                        proactive_analysis_output = format_proactive_analysis(
+                            rows,
+                            drill_down_results,
+                            context["type"]
+                        )
+                else:
+                    print("[Proactive] Aucun contexte détecté — skip drill-downs")
+
+        # 🚀 COMPARAISONS AUTOMATIQUES
         # Critères : requête avec agrégation + date filter + résultat petit (1-5 lignes)
+        comparison_output = None
         auto_compare_enabled = os.getenv("AUTO_COMPARE", "true").lower() == "true"
 
         if auto_compare_enabled and len(rows) > 0 and len(rows) <= 5:
@@ -373,19 +421,33 @@ def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> st
 
                     if comparison_results:
                         # Formater avec comparaisons
-                        formatted_output = _format_with_comparisons(rows, comparison_results)
+                        comparison_output = _format_with_comparisons(rows, comparison_results)
 
-                        if formatted_output:
-                            # Ajouter le JSON brut en bas pour référence
-                            formatted_output += "\n\n---\n**Données brutes (JSON) :**\n```json\n"
-                            formatted_output += json.dumps(rows, default=str, ensure_ascii=False, indent=2)
-                            formatted_output += "\n```"
-                            return formatted_output
+        # 📦 ASSEMBLAGE FINAL DES RÉSULTATS
+        # Combiner : JSON brut + analyse proactive + comparaisons
+        output_parts = []
 
-        # Sortie normale si pas de comparaisons
-        out = json.dumps(rows, default=str, ensure_ascii=False, indent=2)
-        if len(out) > MAX_TOOL_CHARS:
-            out = out[:MAX_TOOL_CHARS] + " …\n\n-- SQL\n```sql\n{q}\n```"
-        return out or "Aucun résultat."
+        # 1. Résultat JSON principal
+        json_output = json.dumps(rows, default=str, ensure_ascii=False, indent=2)
+        if len(json_output) <= MAX_TOOL_CHARS:
+            output_parts.append("**📊 Résultat de la requête :**\n```json\n" + json_output + "\n```")
+        else:
+            output_parts.append(json_output[:MAX_TOOL_CHARS] + " …")
+
+        # 2. Analyse proactive (si disponible)
+        if proactive_analysis_output:
+            output_parts.append(proactive_analysis_output)
+
+        # 3. Comparaisons temporelles (si disponibles)
+        if comparison_output:
+            output_parts.append(comparison_output)
+
+        # Retourner tout combiné
+        if len(output_parts) > 1:
+            # On a des analyses enrichies
+            return "\n\n".join(output_parts)
+        else:
+            # Juste le JSON de base
+            return json_output or "Aucun résultat."
     except Exception as e:
         return f"❌ Erreur BigQuery: {str(e)}"
