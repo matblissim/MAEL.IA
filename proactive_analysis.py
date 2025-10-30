@@ -167,6 +167,39 @@ def extract_table_from_query(sql_query: str) -> Optional[str]:
     return None
 
 
+def extract_main_table_alias(sql_query: str) -> Optional[str]:
+    """
+    Extrait l'alias de la table principale si la requête contient des JOINs.
+    Retourne l'alias ou None.
+
+    Exemples:
+    - "FROM sales.box_sales AS t1" → "t1"
+    - "FROM sales.box_sales t1" → "t1"
+    - "FROM sales.box_sales" → None
+    """
+    # Pattern pour capturer : FROM table AS alias ou FROM table alias
+    patterns = [
+        r'FROM\s+`[^`]+`\s+(?:AS\s+)?([a-zA-Z0-9_]+)',  # FROM `table` AS alias ou FROM `table` alias
+        r'FROM\s+[a-zA-Z0-9_.-]+\s+(?:AS\s+)?([a-zA-Z0-9_]+)',  # FROM table AS alias ou FROM table alias
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, sql_query, re.IGNORECASE)
+        if match:
+            alias = match.group(1)
+            # Vérifier que c'est bien un alias et pas un mot-clé SQL
+            sql_keywords = ['WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'GROUP', 'ORDER', 'LIMIT', 'HAVING']
+            if alias.upper() not in sql_keywords:
+                return alias
+
+    return None
+
+
+def has_joins(sql_query: str) -> bool:
+    """Détecte si la requête contient des JOINs."""
+    return bool(re.search(r'\b(JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN)\b', sql_query, re.IGNORECASE))
+
+
 def get_table_columns(client, table_ref: str) -> List[Tuple[str, str]]:
     """
     Récupère les colonnes disponibles d'une table via INFORMATION_SCHEMA.
@@ -434,8 +467,21 @@ def generate_drill_down_query(original_query: str, dimension: str) -> Optional[s
     """
     Génère une requête de drill-down en ajoutant un GROUP BY sur la dimension.
     Garde la même logique WHERE mais ajoute la dimension dans le SELECT et GROUP BY.
+
+    Gère les JOINs en préfixant les colonnes avec l'alias de table si nécessaire.
     """
     try:
+        # 🆕 Détecter si la requête contient des JOINs (colonnes potentiellement ambiguës)
+        dimension_to_use = dimension
+        if has_joins(original_query):
+            alias = extract_main_table_alias(original_query)
+            if alias:
+                # Préfixer la dimension avec l'alias pour éviter l'ambiguïté
+                dimension_to_use = f"{alias}.{dimension}"
+                print(f"[Proactive] JOIN détecté → préfixe : {dimension} → {dimension_to_use}")
+            else:
+                print(f"[Proactive] JOIN détecté mais pas d'alias trouvé → risque d'ambiguïté")
+
         query_upper = original_query.upper()
 
         # Vérifier si la requête a déjà un GROUP BY
@@ -452,7 +498,7 @@ def generate_drill_down_query(original_query: str, dimension: str) -> Optional[s
 
                 # Vérifier si la dimension n'est pas déjà dans le GROUP BY
                 if dimension.lower() not in existing_cols.lower():
-                    new_group_by = f"{group_by_prefix}{dimension}, {existing_cols}"
+                    new_group_by = f"{group_by_prefix}{dimension_to_use}, {existing_cols}"
                     new_query = re.sub(
                         pattern,
                         new_group_by,
@@ -464,7 +510,7 @@ def generate_drill_down_query(original_query: str, dimension: str) -> Optional[s
                     # Ajouter la dimension dans le SELECT aussi
                     new_query = re.sub(
                         r'(SELECT\s+)',
-                        f'\\1{dimension}, ',
+                        f'\\1{dimension_to_use}, ',
                         new_query,
                         count=1,
                         flags=re.IGNORECASE
@@ -476,7 +522,7 @@ def generate_drill_down_query(original_query: str, dimension: str) -> Optional[s
             # 1. Ajouter dimension dans SELECT
             new_query = re.sub(
                 r'(SELECT\s+)',
-                f'\\1{dimension}, ',
+                f'\\1{dimension_to_use}, ',
                 original_query,
                 count=1,
                 flags=re.IGNORECASE
@@ -490,14 +536,14 @@ def generate_drill_down_query(original_query: str, dimension: str) -> Optional[s
                 # Insérer GROUP BY avant ORDER BY
                 new_query = re.sub(
                     r'(\s+ORDER\s+BY)',
-                    f'\nGROUP BY {dimension}\\1',
+                    f'\nGROUP BY {dimension_to_use}\\1',
                     new_query,
                     count=1,
                     flags=re.IGNORECASE
                 )
             else:
                 # Ajouter GROUP BY à la fin
-                new_query = f"{new_query.rstrip()}\nGROUP BY {dimension}"
+                new_query = f"{new_query.rstrip()}\nGROUP BY {dimension_to_use}"
 
             return new_query
 
