@@ -151,15 +151,16 @@ TOOLS = [
     {
         "name": "save_analysis_to_notion",
         "description": (
-            "Crée une nouvelle page d'analyse métier dans Notion sous une page parente "
-            "(par ex. 'Franck Data'). "
-            "Cette page inclut automatiquement : "
-            "- le titre business, "
-            "- le prompt métier (question de l'utilisateur), "
-            "- la requête SQL finale, "
-            "- des notes standard, "
-            "- et un emoji de page. "
-            "Utiliser cet outil pour archiver une analyse que tu viens de produire."
+            "Crée une nouvelle page d'analyse stylée et professionnelle dans Notion. "
+            "La page inclut automatiquement : "
+            "- En-tête avec métadonnées (date, auteur, thread Slack) "
+            "- Section question avec citation "
+            "- Requête SQL dans un toggle pliable "
+            "- Section résultats avec callout "
+            "- Section insights/analyse avec bullets "
+            "- Espace pour tableaux de données détaillées "
+            "- Footer avec notes techniques "
+            "Utiliser cet outil pour archiver une analyse complète."
         ),
         "input_schema": {
             "type": "object",
@@ -171,9 +172,9 @@ TOOLS = [
                 "title": {
                     "type": "string",
                     "description": (
-                        "Titre business clair. "
+                        "Titre business clair et descriptif. "
                         "Exemple : \"Optins CTC par pays avec profil beauté renseigné\" "
-                        "ou \"Calendrier Avent FR 2025 : repeat rate vs 2024\"."
+                        "ou \"Analyse Churn FR Q4 2024 - Box subscribers\"."
                     )
                 },
                 "user_prompt": {
@@ -182,7 +183,18 @@ TOOLS = [
                 },
                 "sql_query": {
                     "type": "string",
-                    "description": "La requête SQL finale utilisée pour répondre."
+                    "description": "La requête SQL finale utilisée pour l'analyse."
+                },
+                "thread_url": {
+                    "type": "string",
+                    "description": "URL du thread Slack (optionnel). Si fourni, sera ajouté dans les métadonnées."
+                },
+                "result_summary": {
+                    "type": "string",
+                    "description": (
+                        "Résumé des résultats clés (optionnel). "
+                        "Exemple : \"1 245 clients optins CTC en FR (23.4% du total), dont 87% avec profil beauté complet\""
+                    )
                 }
             },
             "required": ["parent_page_id", "title", "user_prompt", "sql_query"]
@@ -255,17 +267,21 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         return read_notion_page(tool_input["page_id"])
 
     elif tool_name == "save_analysis_to_notion":
-        # crée la page d'analyse standardisée (titre / prompt / SQL / emoji)
+        # crée la page d'analyse stylée et professionnelle
         parent_id   = tool_input["parent_page_id"]
         title       = tool_input["title"]
         user_prompt = tool_input["user_prompt"]
         sql_query   = tool_input["sql_query"]
+        thread_url  = tool_input.get("thread_url")
+        result_summary = tool_input.get("result_summary")
 
         return create_analysis_page(
             parent_id=parent_id,
             title=title,
             user_prompt=user_prompt,
-            sql_query=sql_query
+            sql_query=sql_query,
+            thread_url=thread_url,
+            result_summary=result_summary
         )
 
     elif tool_name == "append_table_to_notion_page":

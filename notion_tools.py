@@ -1,10 +1,123 @@
 # notion_tools.py
-"""Outils pour interagir avec Notion."""
+"""Outils pour interagir avec Notion - Version améliorée."""
 
 import json
-from typing import List
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 from config import notion_client, MAX_TOOL_CHARS
 
+
+# ============================================================================
+# HELPERS POUR CRÉER DES BLOCS NOTION STYLÉS
+# ============================================================================
+
+def _rich_text(text: str, bold: bool = False, italic: bool = False, color: str = "default") -> Dict:
+    """Crée un objet rich_text Notion."""
+    return {
+        "type": "text",
+        "text": {"content": text[:2000]},
+        "annotations": {
+            "bold": bold,
+            "italic": italic,
+            "color": color
+        }
+    }
+
+
+def _callout_block(emoji: str, text: str, color: str = "gray_background") -> Dict:
+    """Crée un bloc callout (encadré avec emoji)."""
+    return {
+        "object": "block",
+        "type": "callout",
+        "callout": {
+            "icon": {"type": "emoji", "emoji": emoji},
+            "color": color,
+            "rich_text": [_rich_text(text)]
+        }
+    }
+
+
+def _divider_block() -> Dict:
+    """Crée un séparateur horizontal."""
+    return {
+        "object": "block",
+        "type": "divider",
+        "divider": {}
+    }
+
+
+def _heading_block(level: int, text: str, color: str = "default") -> Dict:
+    """Crée un titre (niveau 1, 2 ou 3)."""
+    heading_type = f"heading_{level}"
+    return {
+        "object": "block",
+        "type": heading_type,
+        heading_type: {
+            "rich_text": [_rich_text(text, bold=True, color=color)]
+        }
+    }
+
+
+def _paragraph_block(text: str, bold: bool = False, italic: bool = False) -> Dict:
+    """Crée un paragraphe."""
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {
+            "rich_text": [_rich_text(text, bold=bold, italic=italic)]
+        }
+    }
+
+
+def _code_block(code: str, language: str = "sql") -> Dict:
+    """Crée un bloc de code."""
+    return {
+        "object": "block",
+        "type": "code",
+        "code": {
+            "language": language,
+            "rich_text": [{"type": "text", "text": {"content": code[:2000]}}]
+        }
+    }
+
+
+def _toggle_block(title: str, children: List[Dict]) -> Dict:
+    """Crée un bloc toggle (section pliable)."""
+    return {
+        "object": "block",
+        "type": "toggle",
+        "toggle": {
+            "rich_text": [_rich_text(title, bold=True)],
+            "children": children
+        }
+    }
+
+
+def _bulleted_list_block(text: str, color: str = "default") -> Dict:
+    """Crée un élément de liste à puces."""
+    return {
+        "object": "block",
+        "type": "bulleted_list_item",
+        "bulleted_list_item": {
+            "rich_text": [_rich_text(text, color=color)]
+        }
+    }
+
+
+def _quote_block(text: str) -> Dict:
+    """Crée un bloc citation."""
+    return {
+        "object": "block",
+        "type": "quote",
+        "quote": {
+            "rich_text": [_rich_text(text, italic=True)]
+        }
+    }
+
+
+# ============================================================================
+# FONCTIONS PRINCIPALES
+# ============================================================================
 
 def read_notion_page(page_id: str) -> str:
     """Lit le contenu d'une page Notion."""
@@ -70,31 +183,59 @@ def search_notion(query: str, object_type: str = "page") -> str:
 def append_table_to_notion_page(page_id: str, headers: List[str], rows: List[List[str]]) -> str:
     """
     Ajoute un bloc tableau dans une page Notion existante.
-    - headers: liste des noms de colonnes (strings)
-    - rows: liste de lignes, chaque ligne est une liste de cellules (toutes converties en texte)
+    Version améliorée avec limite par batch pour éviter les erreurs.
     """
     if not notion_client:
         return "❌ Notion non configuré."
 
     try:
+        # Limite Notion : max 100 rows par batch (on met 50 pour être safe)
+        MAX_ROWS_PER_BATCH = 50
+
+        if len(rows) > MAX_ROWS_PER_BATCH:
+            # Si trop de lignes, on crée plusieurs tableaux
+            batches = []
+            for i in range(0, len(rows), MAX_ROWS_PER_BATCH):
+                batch = rows[i:i + MAX_ROWS_PER_BATCH]
+                batches.append(batch)
+
+            results = []
+            for idx, batch in enumerate(batches):
+                result = _create_table_block(page_id, headers, batch)
+                if result.startswith("❌"):
+                    return result
+                results.append(f"Tableau {idx + 1}/{len(batches)}")
+
+            return json.dumps({
+                "success": True,
+                "message": f"✅ {len(batches)} tableaux créés ({len(rows)} lignes au total)",
+                "batches": results
+            }, ensure_ascii=False, indent=2)
+        else:
+            return _create_table_block(page_id, headers, rows)
+
+    except Exception as e:
+        return f"❌ Erreur ajout tableau Notion: {str(e)[:300]}"
+
+
+def _create_table_block(page_id: str, headers: List[str], rows: List[List[str]]) -> str:
+    """Crée un bloc tableau Notion (fonction helper)."""
+    try:
         # 1. On crée d'abord le bloc "table" vide
         table_block = notion_client.blocks.children.append(
             block_id=page_id,
-            children=[
-                {
-                    "object": "block",
-                    "type": "table",
-                    "table": {
-                        "table_width": len(headers),
-                        "has_column_header": True,
-                        "has_row_header": False,
-                        "children": []  # on ajoute les rows ensuite
-                    }
+            children=[{
+                "object": "block",
+                "type": "table",
+                "table": {
+                    "table_width": len(headers),
+                    "has_column_header": True,
+                    "has_row_header": False,
+                    "children": []
                 }
-            ]
+            }]
         )
 
-        # Récupérer l'ID du bloc table créé
         table_id = table_block["results"][0]["id"]
 
         # 2. Construire les rows Notion (entête + data)
@@ -102,7 +243,7 @@ def append_table_to_notion_page(page_id: str, headers: List[str], rows: List[Lis
             "object": "block",
             "type": "table_row",
             "table_row": {
-                "cells": [[{"type": "text", "text": {"content": h[:200]}}] for h in headers]
+                "cells": [[{"type": "text", "text": {"content": str(h)[:200]}}] for h in headers]
             }
         }
 
@@ -125,24 +266,19 @@ def append_table_to_notion_page(page_id: str, headers: List[str], rows: List[Lis
             children=[header_row] + data_rows
         )
 
-        return json.dumps(
-            {
-                "success": True,
-                "message": f"Tableau inséré ({len(rows)} lignes).",
-                "table_block_id": table_id
-            },
-            ensure_ascii=False,
-            indent=2
-        )
+        return json.dumps({
+            "success": True,
+            "message": f"Tableau inséré ({len(rows)} lignes).",
+            "table_block_id": table_id
+        }, ensure_ascii=False, indent=2)
 
     except Exception as e:
-        return f"❌ Erreur ajout tableau Notion: {str(e)[:300]}"
+        return f"❌ Erreur création tableau: {str(e)[:300]}"
 
 
 def append_markdown_table_to_page(page_id: str, headers: List[str], rows: List[List[str]]) -> str:
     """
-    Fallback : insère le tableau en Markdown (| col | ...) dans la page Notion,
-    sous forme de bloc 'code' (plain text).
+    Fallback : insère le tableau en Markdown dans un bloc code.
     """
     if not notion_client:
         return "❌ Notion non configuré."
@@ -155,21 +291,7 @@ def append_markdown_table_to_page(page_id: str, headers: List[str], rows: List[L
 
         notion_client.blocks.children.append(
             block_id=page_id,
-            children=[
-                {
-                    "object": "block",
-                    "type": "code",
-                    "code": {
-                        "language": "plain text",
-                        "rich_text": [
-                            {
-                                "type": "text",
-                                "text": {"content": table_md[:2000]}
-                            }
-                        ]
-                    }
-                }
-            ]
+            children=[_code_block(table_md, "plain text")]
         )
         return json.dumps({"success": True, "message": "✅ Tableau ajouté en fallback Markdown."}, ensure_ascii=False)
 
@@ -177,182 +299,193 @@ def append_markdown_table_to_page(page_id: str, headers: List[str], rows: List[L
         return f"❌ Erreur fallback Markdown: {str(e)[:300]}"
 
 
-def create_notion_page(parent_id: str, title: str, content: str = "", page_emoji: str = "📊") -> str:
+def create_analysis_page(
+    parent_id: str,
+    title: str,
+    user_prompt: str,
+    sql_query: str,
+    thread_url: Optional[str] = None,
+    result_summary: Optional[str] = None
+) -> str:
     """
-    Crée une page Notion sous parent_id, avec :
-    - titres (# / ## / ###),
-    - paragraphes,
-    - blocs code (```sql ... ``` ou ``` ... ``` multi-lignes),
-    - icône emoji de page.
-    """
+    Crée une page d'analyse stylée et professionnelle dans Notion.
 
+    Structure de la page :
+    - En-tête avec métadonnées
+    - Section Question/Contexte
+    - Section Requête SQL (toggle)
+    - Section Résultats (si fournis)
+    - Section Insights/Analyse
+    - Footer avec notes
+    """
     if not notion_client:
         return "❌ Notion non configuré."
 
     try:
-        # 1. On découpe le contenu en blocs logiques
-        lines = content.splitlines()
+        # Date actuelle
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+        # Construction des blocs de la page
         blocks = []
-        current_code_lang = None      # "sql" ou "plain text"
-        current_code_lines = []       # accumulateur de lignes de code
-        current_para_lines = []       # accumulateur de paragraphe (texte normal)
 
-        def flush_paragraph():
-            """Envoie le paragraphe accumulé dans blocks si non vide."""
-            nonlocal current_para_lines, blocks
-            if not current_para_lines:
-                return
-            paragraph_text = "\n".join(current_para_lines).strip()
-            if paragraph_text:
-                # headings markdown ?
-                if paragraph_text.startswith("# "):
-                    blocks.append({
-                        "object": "block",
-                        "type": "heading_1",
-                        "heading_1": {
-                            "rich_text": [{
-                                "type": "text",
-                                "text": {"content": paragraph_text[2:].strip()[:2000]}
-                            }]
-                        }
-                    })
-                elif paragraph_text.startswith("## "):
-                    blocks.append({
-                        "object": "block",
-                        "type": "heading_2",
-                        "heading_2": {
-                            "rich_text": [{
-                                "type": "text",
-                                "text": {"content": paragraph_text[3:].strip()[:2000]}
-                            }]
-                        }
-                    })
-                elif paragraph_text.startswith("### "):
-                    blocks.append({
-                        "object": "block",
-                        "type": "heading_3",
-                        "heading_3": {
-                            "rich_text": [{
-                                "type": "text",
-                                "text": {"content": paragraph_text[4:].strip()[:2000]}
-                            }]
-                        }
-                    })
-                else:
-                    blocks.append({
-                        "object": "block",
-                        "type": "paragraph",
-                        "paragraph": {
-                            "rich_text": [{
-                                "type": "text",
-                                "text": {"content": paragraph_text[:2000]}
-                            }]
-                        }
-                    })
-            current_para_lines = []
+        # 1. CALLOUT D'EN-TÊTE avec métadonnées
+        metadata_text = f"📅 Créé le {now} | 🤖 Par Franck"
+        if thread_url:
+            metadata_text += f" | 💬 Thread Slack"
+        blocks.append(_callout_block("ℹ️", metadata_text, "blue_background"))
 
-        def flush_code_block():
-            """Envoie le bloc code accumulé dans blocks si non vide."""
-            nonlocal current_code_lines, current_code_lang, blocks
-            if not current_code_lines:
-                return
-            code_text = "\n".join(current_code_lines)
-            blocks.append({
-                "object": "block",
-                "type": "code",
-                "code": {
-                    "language": "sql" if current_code_lang == "sql" else "plain text",
-                    "rich_text": [{
-                        "type": "text",
-                        "text": {"content": code_text[:2000]}
-                    }]
-                }
-            })
-            current_code_lines = []
-            current_code_lang = None
+        blocks.append(_divider_block())
 
-        for line in lines:
-            stripped = line.strip()
+        # 2. SECTION QUESTION / CONTEXTE
+        blocks.append(_heading_block(2, "❓ Question posée"))
+        blocks.append(_quote_block(user_prompt.strip()))
 
-            # 2. Détection du début/fin d'un bloc code
-            if stripped.startswith("```"):
-                fence = stripped[3:].strip()  # peut être "sql", ""...
-                # cas: on ferme un bloc code déjà en cours
-                if current_code_lang is not None:
-                    # On ferme le bloc
-                    flush_code_block()
-                    continue
-                else:
-                    # On ouvre un bloc code
-                    flush_paragraph()  # avant de commencer le code
-                    current_code_lang = "sql" if fence.lower().startswith("sql") else "plain text"
-                    current_code_lines = []
-                    continue
+        blocks.append(_divider_block())
 
-            # 3. Si on est DANS un bloc code : on empile les lignes dans current_code_lines
-            if current_code_lang is not None:
-                current_code_lines.append(line)
-                continue
+        # 3. SECTION REQUÊTE SQL (dans un toggle pour ne pas surcharger)
+        sql_blocks = [
+            _paragraph_block("Requête SQL utilisée pour cette analyse :", italic=True),
+            _code_block(sql_query.strip(), "sql")
+        ]
+        blocks.append(_toggle_block("🔍 Voir la requête SQL", sql_blocks))
 
-            # 4. Sinon on est dans du texte normal → on empile pour paragraphe
-            # Saut de ligne vide => flush paragraphe
-            if stripped == "":
-                flush_paragraph()
-            else:
-                current_para_lines.append(line)
+        blocks.append(_divider_block())
 
-        # fin du loop : flush ce qui reste
-        flush_paragraph()
-        flush_code_block()
+        # 4. SECTION RÉSULTATS (si fournis)
+        if result_summary:
+            blocks.append(_heading_block(2, "📊 Résultats"))
+            blocks.append(_callout_block("✅", result_summary, "green_background"))
+            blocks.append(_paragraph_block("Les tableaux de données détaillés sont ci-dessous."))
 
-        # 2. Création de la page Notion
+        # 5. ESPACE POUR INSIGHTS/ANALYSE
+        blocks.append(_heading_block(2, "💡 Insights & Analyse"))
+        blocks.append(_paragraph_block("Analyse des résultats :", italic=True))
+        blocks.append(_bulleted_list_block("Insight principal à compléter"))
+        blocks.append(_bulleted_list_block("Tendances observées"))
+        blocks.append(_bulleted_list_block("Actions recommandées"))
+
+        blocks.append(_divider_block())
+
+        # 6. SECTION DONNÉES DÉTAILLÉES
+        blocks.append(_heading_block(2, "📈 Données détaillées"))
+        blocks.append(_paragraph_block(
+            "Les tableaux de résultats sont ajoutés ci-dessous via append_table_to_notion_page.",
+            italic=True
+        ))
+
+        blocks.append(_divider_block())
+
+        # 7. FOOTER / NOTES
+        notes_blocks = [
+            _bulleted_list_block("Cette page a été générée automatiquement par Franck", color="gray"),
+            _bulleted_list_block("Vérifier les filtres : pays, période, tables sources", color="gray"),
+            _bulleted_list_block("Pour questions : voir le thread Slack associé", color="gray")
+        ]
+        blocks.append(_toggle_block("📝 Notes techniques", notes_blocks))
+
+        # Création de la page Notion
         new_page = notion_client.pages.create(
             parent={"page_id": parent_id},
-            icon={
-                "type": "emoji",
-                "emoji": page_emoji
-            },
+            icon={"type": "emoji", "emoji": "📊"},
             properties={
                 "title": {
-                    "title": [{
-                        "text": {"content": title[:100]}
-                    }]
+                    "title": [{"text": {"content": title[:100]}}]
                 }
             },
             children=blocks
         )
 
-        return json.dumps(
-            {
-                "success": True,
-                "page_id": new_page["id"],
-                "url": new_page["url"],
-                "message": f"Page '{title}' créée avec succès"
+        return json.dumps({
+            "success": True,
+            "page_id": new_page["id"],
+            "url": new_page["url"],
+            "message": f"✅ Page d'analyse '{title}' créée avec succès"
+        }, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        return f"❌ Erreur création page d'analyse: {str(e)[:300]}"
+
+
+def create_notion_page(parent_id: str, title: str, content: str = "", page_emoji: str = "📄") -> str:
+    """
+    Crée une page Notion générique avec parsing de Markdown simple.
+    Pour les analyses, utiliser create_analysis_page() à la place.
+    """
+    if not notion_client:
+        return "❌ Notion non configuré."
+
+    try:
+        lines = content.splitlines()
+        blocks = []
+        current_code_lang = None
+        current_code_lines = []
+        current_para_lines = []
+
+        def flush_paragraph():
+            nonlocal current_para_lines, blocks
+            if not current_para_lines:
+                return
+            paragraph_text = "\n".join(current_para_lines).strip()
+            if paragraph_text:
+                if paragraph_text.startswith("# "):
+                    blocks.append(_heading_block(1, paragraph_text[2:].strip()))
+                elif paragraph_text.startswith("## "):
+                    blocks.append(_heading_block(2, paragraph_text[3:].strip()))
+                elif paragraph_text.startswith("### "):
+                    blocks.append(_heading_block(3, paragraph_text[4:].strip()))
+                else:
+                    blocks.append(_paragraph_block(paragraph_text))
+            current_para_lines = []
+
+        def flush_code_block():
+            nonlocal current_code_lines, current_code_lang, blocks
+            if not current_code_lines:
+                return
+            code_text = "\n".join(current_code_lines)
+            blocks.append(_code_block(code_text, current_code_lang or "plain text"))
+            current_code_lines = []
+            current_code_lang = None
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                fence = stripped[3:].strip()
+                if current_code_lang is not None:
+                    flush_code_block()
+                    continue
+                else:
+                    flush_paragraph()
+                    current_code_lang = "sql" if fence.lower().startswith("sql") else "plain text"
+                    current_code_lines = []
+                    continue
+
+            if current_code_lang is not None:
+                current_code_lines.append(line)
+                continue
+
+            if stripped == "":
+                flush_paragraph()
+            else:
+                current_para_lines.append(line)
+
+        flush_paragraph()
+        flush_code_block()
+
+        new_page = notion_client.pages.create(
+            parent={"page_id": parent_id},
+            icon={"type": "emoji", "emoji": page_emoji},
+            properties={
+                "title": {"title": [{"text": {"content": title[:100]}}]}
             },
-            ensure_ascii=False,
-            indent=2
+            children=blocks
         )
+
+        return json.dumps({
+            "success": True,
+            "page_id": new_page["id"],
+            "url": new_page["url"],
+            "message": f"Page '{title}' créée avec succès"
+        }, ensure_ascii=False, indent=2)
 
     except Exception as e:
         return f"❌ Erreur création page: {str(e)[:300]}"
-
-
-def create_analysis_page(parent_id: str, title: str, user_prompt: str, sql_query: str) -> str:
-    """
-    Crée une page d'analyse standardisée dans Notion.
-    parent_id : page racine ("Franck Data", par exemple)
-    """
-    content = (
-        f"# {title}\n\n"
-        "## Contexte / Demande\n"
-        f"{user_prompt.strip()}\n\n"
-        "## Requête SQL\n"
-        "```sql\n"
-        f"{sql_query.strip()}\n"
-        "```\n\n"
-        "## Notes\n"
-        "- Cette page a été générée automatiquement par Franck.\n"
-        "- Vérifier les filtres (FR / période / table calendrier de l'avent).\n"
-    )
-    return create_notion_page(parent_id, title, content)
