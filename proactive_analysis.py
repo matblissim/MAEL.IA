@@ -9,6 +9,27 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 
+# Patterns de colonnes synonymes pour le matching intelligent
+COLUMN_PATTERNS = {
+    "country": ["country", "country_code", "pays", "country_name"],
+    "acquisition_type": ["acquisition_type", "acquisition_channel", "acquisition_source", "source", "canal_acquisition"],
+    "acquisition_source": ["acquisition_source", "acquisition_channel", "source", "utm_source"],
+    "box_name": ["box_name", "box_type", "product_name", "box", "nom_box"],
+    "product_type": ["product_type", "product_category", "category", "type_produit"],
+    "channel": ["channel", "canal", "sales_channel", "marketing_channel"],
+    "customer_segment": ["customer_segment", "segment", "user_segment", "client_segment"],
+    "boxes_received": ["boxes_received", "nb_boxes", "box_count", "nombre_box"],
+    "tenure_months": ["tenure_months", "anciennete", "months_active", "mois_anciennete"],
+    "order_status": ["order_status", "status", "statut", "order_state"],
+    "shipment_status": ["shipment_status", "delivery_status", "statut_livraison"],
+    "subscription_type": ["subscription_type", "sub_type", "type_abonnement"],
+    "is_active": ["is_active", "active", "actif", "status"],
+    "payment_method": ["payment_method", "paiement", "payment_type"],
+    "tenure_bucket": ["tenure_bucket", "anciennete_bucket", "tenure_group"],
+    "last_box_name": ["last_box_name", "derniere_box", "last_box"]
+}
+
+
 # Mapping contexte → dimensions pertinentes à explorer
 CONTEXT_DIMENSIONS = {
     "churn": {
@@ -126,6 +147,145 @@ def extract_available_columns(sql_query: str) -> List[str]:
     return list(set(matches))
 
 
+def extract_table_from_query(sql_query: str) -> Optional[str]:
+    """
+    Extrait la table principale d'une requête SQL.
+    Retourne au format 'project.dataset.table' ou 'dataset.table'.
+    """
+    # Pattern pour capturer : FROM `project.dataset.table` ou FROM dataset.table
+    patterns = [
+        r'FROM\s+`([^`]+)`',  # FROM `project.dataset.table`
+        r'FROM\s+([a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)',  # FROM project.dataset.table
+        r'FROM\s+([a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)',  # FROM dataset.table
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, sql_query, re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+    return None
+
+
+def get_table_columns(client, table_ref: str) -> List[str]:
+    """
+    Récupère les colonnes disponibles d'une table via INFORMATION_SCHEMA.
+    Retourne une liste de noms de colonnes en lowercase.
+    """
+    try:
+        # Parser table_ref
+        parts = table_ref.split('.')
+        if len(parts) == 3:
+            project_id, dataset_id, table_id = parts
+        elif len(parts) == 2:
+            # Utiliser le projet par défaut du client
+            project_id = client.project
+            dataset_id, table_id = parts
+        else:
+            return []
+
+        # Requête INFORMATION_SCHEMA
+        query = f"""
+        SELECT column_name
+        FROM `{project_id}.{dataset_id}.INFORMATION_SCHEMA.COLUMNS`
+        WHERE table_name = '{table_id}'
+        """
+
+        job = client.query(query)
+        results = list(job.result(timeout=10))
+
+        # Retourner les noms de colonnes en lowercase
+        return [row.column_name.lower() for row in results]
+
+    except Exception as e:
+        print(f"[Proactive] Erreur récupération colonnes pour {table_ref}: {e}")
+        return []
+
+
+def match_dimension_to_column(dimension: str, available_columns: List[str]) -> Optional[str]:
+    """
+    Trouve la colonne réelle qui correspond à une dimension souhaitée.
+    Utilise des patterns de matching intelligent.
+
+    Args:
+        dimension: Nom de dimension souhaité (ex: "country")
+        available_columns: Liste des colonnes disponibles dans la table
+
+    Returns:
+        Le nom de la colonne réelle, ou None si pas de match
+    """
+    # Convertir tout en lowercase pour le matching
+    available_lower = [col.lower() for col in available_columns]
+    dimension_lower = dimension.lower()
+
+    # 1. Match exact
+    if dimension_lower in available_lower:
+        idx = available_lower.index(dimension_lower)
+        return available_columns[idx]
+
+    # 2. Match via patterns synonymes
+    if dimension_lower in COLUMN_PATTERNS:
+        for pattern in COLUMN_PATTERNS[dimension_lower]:
+            if pattern.lower() in available_lower:
+                idx = available_lower.index(pattern.lower())
+                return available_columns[idx]
+
+    # 3. Match partiel (contient le mot)
+    for col in available_columns:
+        col_lower = col.lower()
+        # Si la dimension est contenue dans le nom de colonne
+        if dimension_lower in col_lower or col_lower in dimension_lower:
+            return col
+
+    return None
+
+
+def get_validated_dimensions(
+    client,
+    sql_query: str,
+    desired_dimensions: List[Tuple[str, str]]
+) -> List[Tuple[str, str]]:
+    """
+    Valide les dimensions souhaitées contre les colonnes réelles de la table.
+    Retourne uniquement les dimensions qui existent vraiment.
+
+    Args:
+        client: Client BigQuery
+        sql_query: Requête SQL originale
+        desired_dimensions: Liste de (dimension_name, label)
+
+    Returns:
+        Liste de (real_column_name, label) pour les dimensions validées
+    """
+    # Extraire la table de la requête
+    table_ref = extract_table_from_query(sql_query)
+    if not table_ref:
+        print("[Proactive] Impossible d'extraire la table de la requête")
+        return []
+
+    print(f"[Proactive] Table détectée : {table_ref}")
+
+    # Récupérer les colonnes disponibles
+    available_columns = get_table_columns(client, table_ref)
+    if not available_columns:
+        print("[Proactive] Aucune colonne récupérée via INFORMATION_SCHEMA")
+        return []
+
+    print(f"[Proactive] Colonnes disponibles : {len(available_columns)}")
+
+    # Matcher chaque dimension souhaitée avec une colonne réelle
+    validated = []
+    for dimension, label in desired_dimensions:
+        real_column = match_dimension_to_column(dimension, available_columns)
+        if real_column:
+            validated.append((real_column, label))
+            print(f"[Proactive] ✓ Match : {dimension} → {real_column}")
+        else:
+            print(f"[Proactive] ✗ Pas de match pour : {dimension}")
+
+    return validated
+
+
 def generate_drill_down_query(original_query: str, dimension: str) -> Optional[str]:
     """
     Génère une requête de drill-down en ajoutant un GROUP BY sur la dimension.
@@ -220,7 +380,17 @@ def execute_drill_downs(
     results = {}
     max_drill_downs = int(os.getenv("MAX_DRILL_DOWNS", "3"))
 
-    for dimension, label in dimensions[:max_drill_downs]:
+    # 🆕 VALIDATION : Vérifier que les dimensions existent vraiment dans la table
+    print(f"[Proactive] Validation des {len(dimensions)} dimensions souhaitées...")
+    validated_dimensions = get_validated_dimensions(client, original_query, dimensions)
+
+    if not validated_dimensions:
+        print("[Proactive] Aucune dimension validée — skip drill-downs")
+        return {}
+
+    print(f"[Proactive] {len(validated_dimensions)} dimension(s) validée(s) sur {len(dimensions)}")
+
+    for dimension, label in validated_dimensions[:max_drill_downs]:
         try:
             drill_query = generate_drill_down_query(original_query, dimension)
 
