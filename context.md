@@ -261,6 +261,7 @@ Somme des `net_Revenue` dans `sales.shop_sales`
 - **CA / Revenue** = `net_Revenue`
 - **diff_current_box** = nombre de box reçues depuis la première
 - **Cycle** = cycle de paiement (voir `day_in_cycle`)
+-  **Calendrier** = product_codification='CALENDAR' dans shop_sales
 
 ---
 
