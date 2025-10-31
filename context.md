@@ -253,6 +253,7 @@ Somme des `net_Revenue` dans `sales.shop_sales`
 
 - **Abonnés** = lignes dans `sales.box_sales`
 - **Acquis** / **Acquiz** / **Acquisitions** = nouveaux abonnés (utiliser `acquis_status_lvl1 <> 'LIVE'`)
+- **Acquisition CRM** = acquisition par email, définie comme l'ouverture d'un email dans les 2 jours suivant sa réception (champ `crm_acquisition` dans `sales.box_sales`)
 - **Churn** = abonnés présents un mois mais absents le mois suivant
 - **Self churn** = clients qui se désabonnent eux-mêmes (`self = 1`)
 - **Total churn** = tous les churns (y compris suspensions automatiques)
