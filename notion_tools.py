@@ -493,7 +493,10 @@ def create_notion_page(parent_id: str, title: str, content: str = "", page_emoji
 
 def append_to_notion_context(content: str) -> str:
     """
-    Ajoute du contenu à la page Notion de contexte.
+    Ajoute du contenu à la page Notion de contexte dans une section dédiée.
+
+    Cherche ou crée une section "📝 Notes de Franck" et y ajoute le contenu
+    avec un timestamp.
 
     Args:
         content: Le contenu à ajouter (texte simple ou Markdown)
@@ -510,21 +513,66 @@ def append_to_notion_context(content: str) -> str:
         return "❌ NOTION_CONTEXT_PAGE_ID n'est pas défini dans .env"
 
     try:
-        # Créer un bloc de paragraphe avec le contenu
-        blocks = [
-            _paragraph_block(content.strip())
-        ]
+        # 1. Récupérer tous les blocs de la page pour trouver la section
+        response = notion_client.blocks.children.list(block_id=NOTION_CONTEXT_PAGE_ID)
+        blocks = response.get("results", [])
 
-        # Ajouter le bloc à la page
+        # 2. Chercher la section "📝 Notes de Franck"
+        notes_section_id = None
+        for block in blocks:
+            if block.get("type") == "heading_2":
+                heading_text = ""
+                rich_texts = block.get("heading_2", {}).get("rich_text", [])
+                if rich_texts:
+                    heading_text = rich_texts[0].get("text", {}).get("content", "")
+
+                if "Notes de Franck" in heading_text:
+                    notes_section_id = block["id"]
+                    break
+
+        # 3. Si la section n'existe pas, la créer à la fin de la page
+        if not notes_section_id:
+            # Créer le heading "📝 Notes de Franck" avec description
+            new_section = notion_client.blocks.children.append(
+                block_id=NOTION_CONTEXT_PAGE_ID,
+                children=[
+                    _heading_block(2, "📝 Notes de Franck"),
+                    _paragraph_block("Notes et informations ajoutées automatiquement par Franck.", italic=True)
+                ]
+            )
+            # Récupérer l'ID du heading créé
+            notes_section_id = new_section["results"][0]["id"]
+
+        # 4. Ajouter le contenu avec timestamp après le heading
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Ajouter après le heading "Notes de Franck" (utiliser after parameter)
         notion_client.blocks.children.append(
             block_id=NOTION_CONTEXT_PAGE_ID,
-            children=blocks
+            children=[
+                _bulleted_list_block(f"{content.strip()} _(ajouté le {now})_")
+            ],
+            after=notes_section_id
         )
 
         return json.dumps({
             "success": True,
-            "message": f"✅ Contexte mis à jour ! J'ai ajouté l'information à la page Notion de contexte."
+            "message": f"✅ Contexte mis à jour ! J'ai ajouté l'information dans la section '📝 Notes de Franck'."
         }, ensure_ascii=False, indent=2)
 
     except Exception as e:
-        return f"❌ Erreur lors de l'ajout au contexte Notion: {str(e)[:300]}"
+        # Fallback : ajouter simplement à la fin de la page
+        try:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M")
+            notion_client.blocks.children.append(
+                block_id=NOTION_CONTEXT_PAGE_ID,
+                children=[
+                    _bulleted_list_block(f"{content.strip()} _(ajouté le {now})_")
+                ]
+            )
+            return json.dumps({
+                "success": True,
+                "message": f"✅ Contexte mis à jour ! (ajouté à la fin de la page)"
+            }, ensure_ascii=False, indent=2)
+        except Exception as fallback_error:
+            return f"❌ Erreur lors de l'ajout au contexte Notion: {str(e)[:300]}"
