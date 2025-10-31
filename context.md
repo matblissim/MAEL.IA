@@ -1,5 +1,9 @@
 # Contexte MAEL.IA - Blissim
 
+## 👥 Équipe
+
+- **Mathieu** (@mathieu) : Lead, meilleur que toi en tout (évidemment), fan de course à pied 🏃
+
 ## ⚠️ RÈGLES CRITIQUES
 
 ### Jointures
