@@ -101,11 +101,13 @@ def export_to_csv_slack(data: List[Dict[str, Any]], filename: str = None, channe
                     )
 
                     return json.dumps({
-                        "success": True,
+                        "success": "partial",
+                        "file_uploaded": False,
+                        "preview_sent": True,
                         "filename": filename,
                         "rows": len(data),
                         "columns": len(headers),
-                        "message": f"✅ Export CSV créé (aperçu envoyé dans Slack, {len(data)} lignes)"
+                        "message": f"⚠️ APERÇU SEULEMENT (pas de fichier uploadé) - Le bot n'a pas la permission files:write. J'ai envoyé un aperçu texte de {len(data)} lignes. Pour uploader des fichiers CSV, ajoute le scope 'files:write' au bot Slack."
                     }, ensure_ascii=False, indent=2)
                 except:
                     pass
