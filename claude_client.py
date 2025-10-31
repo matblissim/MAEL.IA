@@ -219,8 +219,13 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
             print(f"[DEBUG] Premier appel Claude - stop_reason: {response.stop_reason}")
             print(f"[DEBUG] Content blocks: {[(b.type, getattr(b, 'name', None)) for b in response.content]}")
 
+            # Fonction helper pour vérifier s'il y a des tool_use dans le contenu
+            def has_tool_use(content):
+                return any(block.type == "tool_use" for block in content)
+
             iteration = 0
-            while response.stop_reason == "tool_use" and iteration < 10:
+            # Exécuter les tools tant qu'il y en a (peu importe le stop_reason)
+            while has_tool_use(response.content) and iteration < 10:
                 iteration += 1
                 print(f"[DEBUG] Itération {iteration} - Exécution des tools...")
                 messages.append({"role": "assistant", "content": response.content})
