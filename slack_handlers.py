@@ -7,7 +7,6 @@ from typing import Optional
 from config import app
 from claude_client import ask_claude, format_sql_queries
 from thread_memory import get_last_queries
-from tools_definitions import set_slack_context
 
 
 # ---------------------------------------
@@ -119,9 +118,6 @@ def setup_handlers(context: str):
                 )
                 return
 
-            # Configurer le contexte Slack pour les exports CSV
-            set_slack_context(client, channel, thread_ts)
-
             answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
 
             # Ajouter les requêtes SQL seulement si demandé
@@ -173,9 +169,6 @@ def setup_handlers(context: str):
                 )
             except Exception as reaction_error:
                 logger.warning(f"⚠️ Impossible d'ajouter la réaction : {reaction_error}")
-
-            # Configurer le contexte Slack pour les exports CSV
-            set_slack_context(client, channel, thread_ts)
 
             answer = ask_claude(text, thread_ts, CURRENT_CONTEXT)
 

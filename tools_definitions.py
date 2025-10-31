@@ -12,23 +12,6 @@ from notion_tools import (
     append_to_notion_context
 )
 from context_tools import append_to_context, read_context_section
-from csv_export import export_to_csv, export_to_csv_slack
-from notion_export import export_to_notion_table
-
-# ---------------------------------------
-# Contexte Slack pour les exports
-# ---------------------------------------
-SLACK_CONTEXT = {
-    "client": None,
-    "channel": None,
-    "thread_ts": None
-}
-
-def set_slack_context(client, channel, thread_ts):
-    """Configure le contexte Slack pour les exports."""
-    SLACK_CONTEXT["client"] = client
-    SLACK_CONTEXT["channel"] = channel
-    SLACK_CONTEXT["thread_ts"] = thread_ts
 
 # ---------------------------------------
 # Tools (déclaration pour Anthropic)
@@ -281,68 +264,6 @@ TOOLS = [
             },
             "required": ["content"]
         }
-    },
-    {
-        "name": "export_to_notion",
-        "description": (
-            "Exporte des résultats vers une page Notion avec tableau interactif dans 'Franck Data'. "
-            "⚠️ UTILISE AUTOMATIQUEMENT CET OUTIL quand : "
-            "- Les résultats contiennent ENTRE 10 ET 300 LIGNES "
-            "- L'utilisateur demande une 'liste', 'export', 'tableau', 'csv', 'gsheet', 'excel' "
-            "- L'utilisateur dit 'j'aimerais avoir', 'envoie-moi', 'télécharge' "
-            "\n"
-            "Crée une page Notion dans 'Franck Data' avec les données en tableau. "
-            "Retourne l'URL publique Notion que l'utilisateur pourra consulter, copier ou exporter. "
-            "\n"
-            "⚠️ RÈGLES STRICTES : "
-            "  - Si < 10 lignes → afficher dans Slack directement (PAS cet outil) "
-            "  - Si 10-300 lignes → TOUJOURS utiliser cet outil "
-            "  - Si > 300 lignes → NE PAS utiliser cet outil, donner la requête SQL uniquement"
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "description": "Les données à exporter (format JSON array of objects)",
-                    "items": {
-                        "type": "object"
-                    }
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Titre de la page Notion (REQUIS, descriptif). Exemple: 'Liste churners Septembre 2025 FR'"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Description optionnelle (contexte de la requête, filtres appliqués, etc.)"
-                }
-            },
-            "required": ["data", "title"]
-        }
-    },
-    {
-        "name": "export_to_csv",
-        "description": (
-            "⚠️ OUTIL OBSOLÈTE - Utilise export_to_notion à la place. "
-            "Cet outil ne fonctionne pas à cause du firewall Rundeck qui bloque l'upload Slack. "
-            "Ne l'utilise que si export_to_notion échoue."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "description": "Les données à exporter",
-                    "items": {"type": "object"}
-                },
-                "filename": {
-                    "type": "string",
-                    "description": "Nom du fichier"
-                }
-            },
-            "required": ["data"]
-        }
     }
 ]
 
@@ -423,53 +344,6 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
     elif tool_name == "append_to_notion_context":
         content = tool_input["content"]
         return append_to_notion_context(content)
-
-    elif tool_name == "export_to_csv":
-        data = tool_input.get("data")
-        filename = tool_input.get("filename")
-        if not data:
-            return "❌ Erreur : data manquante pour l'export CSV"
-
-        # Utiliser export Slack si contexte disponible
-        if SLACK_CONTEXT["client"] and SLACK_CONTEXT["channel"]:
-            return export_to_csv_slack(
-                data=data,
-                filename=filename,
-                channel=SLACK_CONTEXT["channel"],
-                thread_ts=SLACK_CONTEXT["thread_ts"],
-                slack_client=SLACK_CONTEXT["client"]
-            )
-        else:
-            # Fallback: export local
-            return export_to_csv(data, filename)
-
-    elif tool_name == "export_to_notion":
-        data = tool_input.get("data")
-        title = tool_input.get("title")
-        description = tool_input.get("description")
-
-        if not data:
-            import json
-            return json.dumps({
-                "success": False,
-                "error": "CRITICAL: Le paramètre 'data' est manquant ou vide",
-                "message": "❌ ÉCHEC EXPORT NOTION : Tu dois passer les résultats BigQuery complets dans le paramètre 'data' (JSON array). Ne génère PAS d'URL Notion, l'export a ÉCHOUÉ.",
-                "instructions": "Réessaye en copiant TOUT le JSON array des résultats BigQuery dans 'data': export_to_notion(data=[{...}, {...}], title='...')"
-            }, ensure_ascii=False, indent=2)
-
-        if not isinstance(data, list):
-            import json
-            return json.dumps({
-                "success": False,
-                "error": "Le paramètre 'data' doit être un array JSON",
-                "message": f"❌ ÉCHEC EXPORT NOTION : 'data' doit être une liste, reçu : {type(data).__name__}"
-            }, ensure_ascii=False, indent=2)
-
-        return export_to_notion_table(
-            data=data,
-            title=title,
-            description=description
-        )
 
     else:
         return f"❌ Tool inconnu: {tool_name}"

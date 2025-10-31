@@ -178,39 +178,23 @@ def get_system_prompt(context: str = "") -> str:
         "  quand on te dit ajoute ca a notion, c'est dans la page Franck data tu crees une sous page avec la question, le thread et les infos, voire un résumé data\n"
         "  → donne un résumé (compte + colonnes clés) et la requête SQL ;\n"
         "Après chaque tool_use, produis une conclusion synthétique (1–3 lignes) avec un pourcentage clair et la population de référence.\n"
-        "  → propose export si besoin.\n"
         "\n"
-        "RÈGLE EXPORT / LISTES (AUTOMATIQUE) :\n"
-        "✅ MOINS DE 10 LIGNES :\n"
-        "  → Affiche les résultats directement dans Slack (format tableau markdown ou bullets)\n"
+        "RÈGLE LISTES / EXPORTS :\n"
+        "✅ PAR DÉFAUT (toutes questions data) :\n"
+        "  → Exécute la requête normalement\n"
+        "  → Donne un résumé + aperçu (5 premières lignes max)\n"
+        "  → Réponds à la question avec insights\n"
         "\n"
-        "✅ ENTRE 10 ET 300 LIGNES :\n"
-        "  → Utilise AUTOMATIQUEMENT export_to_notion\n"
-        "  → Crée une page Notion dans 'Franck Data' avec le tableau complet\n"
-        "  → Retourne l'URL Notion publique à l'utilisateur\n"
-        "  → L'utilisateur pourra consulter, copier ou exporter depuis Notion\n"
-        "\n"
-        "✅ PLUS DE 300 LIGNES :\n"
-        "  → NE PAS exporter les données\n"
-        "  → Donne UNIQUEMENT la requête SQL complète à l'utilisateur\n"
-        "  → Explique : 'Voici la requête SQL que tu peux exécuter pour obtenir les X lignes :'\n"
-        "  → L'utilisateur pourra l'exécuter lui-même dans BigQuery\n"
-        "\n"
-        "✅ Workflow export (10-300 lignes) :\n"
-        "  1. Exécute la requête BigQuery normalement\n"
-        "  2. ⚠️ IMPORTANT : Appelle export_to_notion en passant TOUT le JSON array dans le paramètre 'data'\n"
-        "     → Tu DOIS copier l'intégralité des résultats BigQuery dans le paramètre 'data'\n"
-        "     → Ne référence PAS les données de l'itération précédente, passe-les EXPLICITEMENT\n"
-        "     → Exemple : export_to_notion(data=[{user_key: 'FR_123', ...}, {...}], title='...')\n"
-        "  3. ⚠️ VÉRIFIE le résultat de export_to_notion :\n"
-        "     → Si success:true ET url présente → Donne l'URL à l'utilisateur\n"
-        "     → Si success:false ou erreur → NE GÉNÈRE PAS D'URL, explique l'erreur et réessaye\n"
-        "     → JAMAIS inventer/deviner une URL Notion\n"
+        "✅ SI l'utilisateur demande explicitement une LISTE ('liste', 'export', 'j'aimerais avoir', 'télécharge', 'csv', 'excel') :\n"
+        "  → Exécute la requête normalement\n"
+        "  → Montre un APERÇU (5-10 premières lignes) dans Slack\n"
+        "  → Donne la REQUÊTE SQL COMPLÈTE formatée en bloc code\n"
+        "  → Explique : 'Pour obtenir toutes les X lignes, exécute cette requête dans BigQuery :'\n"
         "\n"
         "✅ Exemples :\n"
-        "  - 'j'aimerais avoir les 5 plus gros churners' → query_bigquery → afficher dans Slack (5 lignes)\n"
-        "  - 'j'aimerais avoir la liste des churners' → query_bigquery → export_to_notion → URL Notion (50 lignes)\n"
-        "  - 'j'aimerais avoir tous les clients actifs' → query_bigquery → donner requête SQL (500 lignes)\n"
+        "  - 'Quel est le churn de septembre ?' → résumé + chiffres clés (pas de requête SQL)\n"
+        "  - 'j'aimerais avoir les churners de septembre' → aperçu 5 lignes + requête SQL complète\n"
+        "  - 'Liste des clients actifs' → aperçu + requête SQL complète\n"
         "\n"
         "ROUTAGE TOOLS :\n"
         "- 'review'/'avis' → query_reviews (normalised-417010.reviews.reviews_by_user)\n"
@@ -247,10 +231,6 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
             )
             log_claude_usage(response)
 
-            # DEBUG: Log de la première réponse
-            print(f"[DEBUG] Premier appel Claude - stop_reason: {response.stop_reason}")
-            print(f"[DEBUG] Content blocks: {[(b.type, getattr(b, 'name', None)) for b in response.content]}")
-
             # Fonction helper pour vérifier s'il y a des tool_use dans le contenu
             def has_tool_use(content):
                 return any(block.type == "tool_use" for block in content)
@@ -259,15 +239,13 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
             # Exécuter les tools tant qu'il y en a (peu importe le stop_reason)
             while has_tool_use(response.content) and iteration < 10:
                 iteration += 1
-                print(f"[DEBUG] Itération {iteration} - Exécution des tools...")
                 messages.append({"role": "assistant", "content": response.content})
 
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
-                        print(f"[DEBUG] Exécution tool: {block.name} avec input: {str(block.input)[:200]}")
+                        print(f"[🔧] {block.name}")
                         result = execute_tool(block.name, block.input, thread_ts)
-                        print(f"[DEBUG] Résultat tool (premiers 200 chars): {str(result)[:200]}")
                         # Tronquage défensif pour éviter d'inonder le modèle
                         if isinstance(result, str) and len(result) > MAX_TOOL_CHARS:
                             result = result[:MAX_TOOL_CHARS] + " …\n(Contenu tronqué)"
@@ -283,19 +261,14 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
                     messages=messages
                 )
                 log_claude_usage(response)
-                print(f"[DEBUG] Après tool - stop_reason: {response.stop_reason}")
 
-            # DEBUG: Log de la réponse finale
-            print(f"[DEBUG] Fin boucle - Extraction du texte final...")
             final_text_parts = []
             for block in response.content:
                 if getattr(block, "type", "") == "text" and getattr(block, "text", "").strip():
                     final_text_parts.append(block.text.strip())
-                    print(f"[DEBUG] Text block trouvé: {block.text.strip()[:100]}")
 
             final_text = "\n".join(final_text_parts).strip()
             if not final_text:
-                print("[DEBUG] ⚠️ Aucun texte final généré, utilisation du fallback")
                 final_text = "🤔 Hmm, je n'ai pas de réponse claire."
 
             add_to_thread_history(thread_ts, "user", prompt)
