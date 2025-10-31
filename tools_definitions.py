@@ -12,6 +12,7 @@ from notion_tools import (
     append_to_notion_context
 )
 from context_tools import append_to_context, read_context_section
+from csv_export import export_to_csv
 
 # ---------------------------------------
 # Tools (déclaration pour Anthropic)
@@ -264,6 +265,34 @@ TOOLS = [
             },
             "required": ["content"]
         }
+    },
+    {
+        "name": "export_to_csv",
+        "description": (
+            "Exporte des résultats de requête en fichier CSV. "
+            "⚠️ IMPORTANT : Utilise AUTOMATIQUEMENT cet outil quand : "
+            "- L'utilisateur demande une liste / un export / un tableau "
+            "- Les résultats contiennent plus de 10 lignes "
+            "- L'utilisateur dit 'export', 'csv', 'gsheet', 'excel', 'télécharge' "
+            "Le fichier CSV sera créé dans /tmp/ et l'utilisateur recevra le chemin."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "description": "Les données à exporter (format JSON array of objects)",
+                    "items": {
+                        "type": "object"
+                    }
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "Nom du fichier CSV (optionnel, auto-généré si absent). Exemple: 'churn_septembre_2025.csv'"
+                }
+            },
+            "required": ["data"]
+        }
     }
 ]
 
@@ -344,6 +373,13 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
     elif tool_name == "append_to_notion_context":
         content = tool_input["content"]
         return append_to_notion_context(content)
+
+    elif tool_name == "export_to_csv":
+        data = tool_input.get("data")
+        filename = tool_input.get("filename")
+        if not data:
+            return "❌ Erreur : data manquante pour l'export CSV"
+        return export_to_csv(data, filename)
 
     else:
         return f"❌ Tool inconnu: {tool_name}"
