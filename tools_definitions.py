@@ -13,6 +13,7 @@ from notion_tools import (
 )
 from context_tools import append_to_context, read_context_section
 from csv_export import export_to_csv, export_to_csv_slack
+from notion_export import export_to_notion_table
 
 # ---------------------------------------
 # Contexte Slack pour les exports
@@ -282,14 +283,21 @@ TOOLS = [
         }
     },
     {
-        "name": "export_to_csv",
+        "name": "export_to_notion",
         "description": (
-            "Exporte des résultats de requête en fichier CSV et l'uploade AUTOMATIQUEMENT dans Slack. "
-            "⚠️ IMPORTANT : Utilise AUTOMATIQUEMENT cet outil quand : "
-            "- L'utilisateur demande une liste / un export / un tableau "
-            "- Les résultats contiennent plus de 10 lignes "
-            "- L'utilisateur dit 'export', 'csv', 'gsheet', 'excel', 'télécharge', 'j'aimerais avoir' "
-            "Le fichier CSV sera uploadé directement dans le thread Slack. L'utilisateur pourra le télécharger ou l'importer dans Google Sheets."
+            "Exporte des résultats vers une page Notion avec tableau interactif dans 'Franck Data'. "
+            "⚠️ UTILISE AUTOMATIQUEMENT CET OUTIL quand : "
+            "- Les résultats contiennent ENTRE 10 ET 300 LIGNES "
+            "- L'utilisateur demande une 'liste', 'export', 'tableau', 'csv', 'gsheet', 'excel' "
+            "- L'utilisateur dit 'j'aimerais avoir', 'envoie-moi', 'télécharge' "
+            "\n"
+            "Crée une page Notion dans 'Franck Data' avec les données en tableau. "
+            "Retourne l'URL publique Notion que l'utilisateur pourra consulter, copier ou exporter. "
+            "\n"
+            "⚠️ RÈGLES STRICTES : "
+            "  - Si < 10 lignes → afficher dans Slack directement (PAS cet outil) "
+            "  - Si 10-300 lignes → TOUJOURS utiliser cet outil "
+            "  - Si > 300 lignes → NE PAS utiliser cet outil, donner la requête SQL uniquement"
         ),
         "input_schema": {
             "type": "object",
@@ -301,9 +309,36 @@ TOOLS = [
                         "type": "object"
                     }
                 },
+                "title": {
+                    "type": "string",
+                    "description": "Titre de la page Notion (REQUIS, descriptif). Exemple: 'Liste churners Septembre 2025 FR'"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Description optionnelle (contexte de la requête, filtres appliqués, etc.)"
+                }
+            },
+            "required": ["data", "title"]
+        }
+    },
+    {
+        "name": "export_to_csv",
+        "description": (
+            "⚠️ OUTIL OBSOLÈTE - Utilise export_to_notion à la place. "
+            "Cet outil ne fonctionne pas à cause du firewall Rundeck qui bloque l'upload Slack. "
+            "Ne l'utilise que si export_to_notion échoue."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "description": "Les données à exporter",
+                    "items": {"type": "object"}
+                },
                 "filename": {
                     "type": "string",
-                    "description": "Nom du fichier CSV (optionnel, auto-généré si absent). Exemple: 'churn_septembre_2025.csv'"
+                    "description": "Nom du fichier"
                 }
             },
             "required": ["data"]
@@ -407,6 +442,20 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         else:
             # Fallback: export local
             return export_to_csv(data, filename)
+
+    elif tool_name == "export_to_notion":
+        data = tool_input.get("data")
+        title = tool_input.get("title")
+        description = tool_input.get("description")
+
+        if not data:
+            return "❌ Erreur : data manquante pour l'export Notion"
+
+        return export_to_notion_table(
+            data=data,
+            title=title,
+            description=description
+        )
 
     else:
         return f"❌ Tool inconnu: {tool_name}"
