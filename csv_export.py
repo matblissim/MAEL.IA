@@ -61,30 +61,61 @@ def export_to_csv_slack(data: List[Dict[str, Any]], filename: str = None, channe
         csv_bytes = csv_content.encode('utf-8')
 
         # Upload dans Slack
-        response = slack_client.files_upload_v2(
-            channels=channel,
-            thread_ts=thread_ts,
-            file=csv_bytes,
-            filename=filename,
-            title=filename,
-            initial_comment=f"📊 Export CSV : {len(data)} lignes, {len(headers)} colonnes"
-        )
+        try:
+            response = slack_client.files_upload_v2(
+                channels=channel,
+                thread_ts=thread_ts,
+                file=csv_bytes,
+                filename=filename,
+                title=filename,
+                initial_comment=f"📊 Export CSV : {len(data)} lignes, {len(headers)} colonnes"
+            )
 
-        # Compter les lignes
-        row_count = len(data)
-        col_count = len(headers)
+            # Compter les lignes
+            row_count = len(data)
+            col_count = len(headers)
 
-        return json.dumps({
-            "success": True,
-            "filename": filename,
-            "rows": row_count,
-            "columns": col_count,
-            "headers": headers,
-            "message": f"✅ Fichier CSV uploadé dans Slack : {filename} ({row_count} lignes, {col_count} colonnes)"
-        }, ensure_ascii=False, indent=2)
+            return json.dumps({
+                "success": True,
+                "filename": filename,
+                "rows": row_count,
+                "columns": col_count,
+                "headers": headers,
+                "message": f"✅ Fichier CSV uploadé dans Slack : {filename} ({row_count} lignes, {col_count} colonnes)"
+            }, ensure_ascii=False, indent=2)
+
+        except Exception as upload_error:
+            # Si échec upload (missing_scope, etc.), envoyer comme snippet texte
+            error_msg = str(upload_error)
+            if "missing_scope" in error_msg.lower() or "files" in error_msg.lower():
+                # Fallback: envoyer comme snippet texte (max 3000 chars)
+                preview = csv_content[:2900] if len(csv_content) > 3000 else csv_content
+                if len(csv_content) > 3000:
+                    preview += "\n\n... (tronqué, trop de lignes)"
+
+                try:
+                    slack_client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        text=f"📊 Export CSV : {len(data)} lignes, {len(headers)} colonnes\n\n```\n{preview}\n```\n\n⚠️ Le bot Slack n'a pas la permission d'uploader des fichiers. Voici un aperçu."
+                    )
+
+                    return json.dumps({
+                        "success": True,
+                        "filename": filename,
+                        "rows": len(data),
+                        "columns": len(headers),
+                        "message": f"✅ Export CSV créé (aperçu envoyé dans Slack, {len(data)} lignes)"
+                    }, ensure_ascii=False, indent=2)
+                except:
+                    pass
+
+            # Si tout échoue, retourner l'erreur
+            raise upload_error
 
     except Exception as e:
-        return f"❌ Erreur lors de l'export/upload CSV : {str(e)[:300]}"
+        # Fallback final : export local
+        return f"❌ Erreur upload Slack : {str(e)[:200]}. Utilise export_to_csv pour fichier local."
 
 
 def export_to_csv(data: List[Dict[str, Any]], filename: str = None) -> str:
