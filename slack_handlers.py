@@ -99,6 +99,16 @@ def setup_handlers(context: str):
             prompt = strip_own_mention(raw_text, bot_user_id) or "Dis bonjour (très bref) avec une micro-blague."
             logger.info(f"🔵 @mention reçue: {prompt[:200]!r}")
 
+            # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
+            try:
+                client.reactions_add(
+                    channel=channel,
+                    timestamp=msg_ts,
+                    name="eyes"
+                )
+            except Exception as reaction_error:
+                logger.warning(f"⚠️ Impossible d'ajouter la réaction : {reaction_error}")
+
             # Commandes spéciales
             if prompt.lower() in ["reload context", "refresh context", "reload", "refresh"]:
                 reload_context()
@@ -153,6 +163,16 @@ def setup_handlers(context: str):
             if thread_ts not in ACTIVE_THREADS:
                 logger.info(f"⏭️ Thread {thread_ts[:10]}… non actif")
                 return
+
+            # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
+            try:
+                client.reactions_add(
+                    channel=channel,
+                    timestamp=event["ts"],
+                    name="eyes"
+                )
+            except Exception as reaction_error:
+                logger.warning(f"⚠️ Impossible d'ajouter la réaction : {reaction_error}")
 
             # Configurer le contexte Slack pour les exports CSV
             set_slack_context(client, channel, thread_ts)
