@@ -449,7 +449,21 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         description = tool_input.get("description")
 
         if not data:
-            return "❌ Erreur : data manquante pour l'export Notion"
+            import json
+            return json.dumps({
+                "success": False,
+                "error": "CRITICAL: Le paramètre 'data' est manquant ou vide",
+                "message": "❌ ÉCHEC EXPORT NOTION : Tu dois passer les résultats BigQuery complets dans le paramètre 'data' (JSON array). Ne génère PAS d'URL Notion, l'export a ÉCHOUÉ.",
+                "instructions": "Réessaye en copiant TOUT le JSON array des résultats BigQuery dans 'data': export_to_notion(data=[{...}, {...}], title='...')"
+            }, ensure_ascii=False, indent=2)
+
+        if not isinstance(data, list):
+            import json
+            return json.dumps({
+                "success": False,
+                "error": "Le paramètre 'data' doit être un array JSON",
+                "message": f"❌ ÉCHEC EXPORT NOTION : 'data' doit être une liste, reçu : {type(data).__name__}"
+            }, ensure_ascii=False, indent=2)
 
         return export_to_notion_table(
             data=data,
