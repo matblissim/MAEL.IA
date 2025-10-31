@@ -8,8 +8,10 @@ from notion_tools import (
     read_notion_page,
     create_analysis_page,
     append_table_to_notion_page,
-    append_markdown_table_to_page
+    append_markdown_table_to_page,
+    append_to_notion_context
 )
+from context_tools import append_to_context, read_context_section
 
 # ---------------------------------------
 # Tools (déclaration pour Anthropic)
@@ -243,6 +245,25 @@ TOOLS = [
             },
             "required": ["page_id", "headers", "rows"]
         }
+    },
+    {
+        "name": "append_to_notion_context",
+        "description": (
+            "Ajoute du contenu à la page Notion de contexte (lecture/écriture). "
+            "Utilise cet outil quand on te demande explicitement : "
+            "'ajoute à ton context que...', 'note dans ton contexte que...', etc. "
+            "Le contenu sera ajouté de manière permanente à ta base de connaissances."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Le contenu à ajouter au contexte (texte simple ou Markdown)."
+                }
+            },
+            "required": ["content"]
+        }
     }
 ]
 
@@ -310,6 +331,10 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
             return append_markdown_table_to_page(page_id, headers, rows)
 
         return result
+
+    elif tool_name == "append_to_notion_context":
+        content = tool_input["content"]
+        return append_to_notion_context(content)
 
     else:
         return f"❌ Tool inconnu: {tool_name}"

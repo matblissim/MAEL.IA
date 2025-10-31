@@ -489,3 +489,42 @@ def create_notion_page(parent_id: str, title: str, content: str = "", page_emoji
 
     except Exception as e:
         return f"❌ Erreur création page: {str(e)[:300]}"
+
+
+def append_to_notion_context(content: str) -> str:
+    """
+    Ajoute du contenu à la page Notion de contexte.
+
+    Args:
+        content: Le contenu à ajouter (texte simple ou Markdown)
+
+    Returns:
+        Message de confirmation JSON
+    """
+    from config import NOTION_CONTEXT_PAGE_ID
+
+    if not notion_client:
+        return "❌ Notion non configuré."
+
+    if not NOTION_CONTEXT_PAGE_ID:
+        return "❌ NOTION_CONTEXT_PAGE_ID n'est pas défini dans .env"
+
+    try:
+        # Créer un bloc de paragraphe avec le contenu
+        blocks = [
+            _paragraph_block(content.strip())
+        ]
+
+        # Ajouter le bloc à la page
+        notion_client.blocks.children.append(
+            block_id=NOTION_CONTEXT_PAGE_ID,
+            children=blocks
+        )
+
+        return json.dumps({
+            "success": True,
+            "message": f"✅ Contexte mis à jour ! J'ai ajouté l'information à la page Notion de contexte."
+        }, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        return f"❌ Erreur lors de l'ajout au contexte Notion: {str(e)[:300]}"
