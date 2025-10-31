@@ -152,6 +152,8 @@ TOOLS = [
         "name": "save_analysis_to_notion",
         "description": (
             "Crée une nouvelle page d'analyse stylée et professionnelle dans Notion. "
+            "⚠️ IMPORTANT : Cette page sera créée dans la page de STOCKAGE (Franck Data), "
+            "PAS dans la page de contexte métier. "
             "La page inclut automatiquement : "
             "- En-tête avec métadonnées (date, auteur, thread Slack) "
             "- Section question avec citation "
@@ -167,7 +169,11 @@ TOOLS = [
             "properties": {
                 "parent_page_id": {
                     "type": "string",
-                    "description": "ID Notion de la page parent (ex: la page 'Franck Data')."
+                    "description": (
+                        "ID Notion de la page parent pour le stockage. "
+                        "⚠️ Si non fourni, utilise automatiquement NOTION_STORAGE_PAGE_ID (page 'Franck Data'). "
+                        "NE PAS utiliser NOTION_CONTEXT_PAGE_ID qui est la page de contexte métier (lecture seule)."
+                    )
                 },
                 "title": {
                     "type": "string",
@@ -197,7 +203,7 @@ TOOLS = [
                     )
                 }
             },
-            "required": ["parent_page_id", "title", "user_prompt", "sql_query"]
+            "required": ["title", "user_prompt", "sql_query"]
         }
     },
     {
@@ -268,7 +274,14 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
 
     elif tool_name == "save_analysis_to_notion":
         # crée la page d'analyse stylée et professionnelle
-        parent_id   = tool_input["parent_page_id"]
+        from config import NOTION_STORAGE_PAGE_ID
+
+        # Utiliser NOTION_STORAGE_PAGE_ID par défaut si non fourni
+        parent_id = tool_input.get("parent_page_id") or NOTION_STORAGE_PAGE_ID
+
+        if not parent_id:
+            return "❌ Erreur : Aucune page de stockage configurée. Définir NOTION_STORAGE_PAGE_ID dans .env"
+
         title       = tool_input["title"]
         user_prompt = tool_input["user_prompt"]
         sql_query   = tool_input["sql_query"]

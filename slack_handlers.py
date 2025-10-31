@@ -10,6 +10,27 @@ from thread_memory import get_last_queries
 
 
 # ---------------------------------------
+# Context Management (Hot Reload)
+# ---------------------------------------
+CURRENT_CONTEXT = ""  # Contexte actuel chargé
+
+
+def reload_context() -> str:
+    """Recharge le contexte depuis les sources (Notion, DBT, fichiers)."""
+    from context_loader import load_context
+    global CURRENT_CONTEXT
+
+    print("🔄 Rechargement du contexte...")
+    try:
+        CURRENT_CONTEXT = load_context()
+        print(f"✅ Contexte rechargé : {len(CURRENT_CONTEXT)} caractères")
+        return CURRENT_CONTEXT
+    except Exception as e:
+        print(f"❌ Erreur rechargement contexte : {e}")
+        return CURRENT_CONTEXT  # Garder l'ancien si erreur
+
+
+# ---------------------------------------
 # Anti-doublons & util Slack
 # ---------------------------------------
 class EventIdCache:
@@ -56,6 +77,8 @@ def strip_own_mention(text: str, bot_user_id: Optional[str]) -> str:
 # ---------------------------------------
 def setup_handlers(context: str):
     """Configure les handlers Slack avec le contexte chargé."""
+    global CURRENT_CONTEXT
+    CURRENT_CONTEXT = context  # Initialiser le contexte
 
     @app.event("app_mention")
     def on_app_mention(body, event, client, logger):
@@ -75,7 +98,17 @@ def setup_handlers(context: str):
             prompt = strip_own_mention(raw_text, bot_user_id) or "Dis bonjour (très bref) avec une micro-blague."
             logger.info(f"🔵 @mention reçue: {prompt[:200]!r}")
 
-            answer = ask_claude(prompt, thread_ts, context)
+            # Commandes spéciales
+            if prompt.lower() in ["reload context", "refresh context", "reload", "refresh"]:
+                reload_context()
+                client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text="✅ Contexte rechargé ! J'ai mis à jour mes connaissances depuis Notion/DBT."
+                )
+                return
+
+            answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
 
             # Ajouter les requêtes SQL seulement si demandé
             if any(k in prompt.lower() for k in ["sql", "requête", "requete", "query"]):
@@ -117,7 +150,7 @@ def setup_handlers(context: str):
                 logger.info(f"⏭️ Thread {thread_ts[:10]}… non actif")
                 return
 
-            answer = ask_claude(text, thread_ts, context)
+            answer = ask_claude(text, thread_ts, CURRENT_CONTEXT)
 
             if any(k in text.lower() for k in ["sql", "requête", "requete", "query"]):
                 queries = get_last_queries(thread_ts)
