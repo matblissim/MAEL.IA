@@ -11,20 +11,20 @@ from typing import Dict, List, Optional, Tuple
 
 # Patterns de colonnes synonymes pour le matching intelligent
 COLUMN_PATTERNS = {
-    "country": ["country", "country_code", "pays", "country_name"],
-    "acquisition_type": ["acquisition_type", "acquisition_channel", "acquisition_source", "source", "canal_acquisition"],
+    "country": ["country", "dw_country_code", "shipping_country", "country_name"],
+    "acquisition_type": ["acquisition_type", "coupon_type", "is_raffed", "coupon", "coupon_code", "cannot_suspend", "gift", "yearly", "acquis_status_lvl1", "acquis_status_lvl2"],
     "acquisition_source": ["acquisition_source", "acquisition_channel", "source", "utm_source"],
     "box_name": ["box_name", "box_type", "product_name", "box", "nom_box"],
     "product_type": ["product_type", "product_category", "category", "type_produit"],
     "channel": ["channel", "canal", "sales_channel", "marketing_channel"],
-    "customer_segment": ["customer_segment", "segment", "user_segment", "client_segment"],
-    "boxes_received": ["boxes_received", "nb_boxes", "box_count", "nombre_box"],
-    "tenure_months": ["tenure_months", "anciennete", "months_active", "mois_anciennete"],
+    "customer_segment": ["age", "box_sub_status", "ltm_open_email", "nb_box_paid", "is_shopper"],
+    "boxes_received": ["boxes_received", "nb_boxes", "ltm_nb_box_paid", "nombre_box"],
+    "tenure_months": ["tenure_months", "consecutive_boxes", "total_boxes_so_far", "mois_anciennete"],
     "order_status": ["order_status", "status", "statut", "order_state"],
-    "shipment_status": ["shipment_status", "delivery_status", "statut_livraison"],
-    "subscription_type": ["subscription_type", "sub_type", "type_abonnement"],
-    "is_active": ["is_active", "active", "actif", "status"],
-    "payment_method": ["payment_method", "paiement", "payment_type"],
+    "shipment_status": ["order_status", "delivery_status", "statut_livraison"],
+    "subscription_type": ["registration_date", "sub_type", "type_abonnement"],
+    "is_active": ["is_active", "active", "actif", "status", "optin_ctc"],
+    "payment_method": ["payment_date", "sub_payment_status", "payment_type"],
     "tenure_bucket": ["tenure_bucket", "anciennete_bucket", "tenure_group"],
     "last_box_name": ["last_box_name", "derniere_box", "last_box"]
 }

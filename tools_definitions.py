@@ -274,15 +274,24 @@ TOOLS = [
 def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> str:
     """Routeur d'exécution des outils."""
     if tool_name == "describe_table":
-        return describe_table(tool_input["table_name"])
+        table_name = tool_input.get("table_name")
+        if not table_name:
+            return "❌ Erreur : table_name manquant dans l'input du tool"
+        return describe_table(table_name)
 
     elif tool_name == "query_bigquery":
-        return execute_bigquery(tool_input["query"], thread_ts, "default")
+        query = tool_input.get("query")
+        if not query:
+            return "❌ Erreur : query manquante dans l'input du tool. Veuillez fournir une requête SQL valide."
+        return execute_bigquery(query, thread_ts, "default")
 
     elif tool_name in ("query_ops", "query_crm", "query_reviews"):
+        query = tool_input.get("query")
+        if not query:
+            return f"❌ Erreur : query manquante dans l'input du tool {tool_name}. Veuillez fournir une requête SQL valide."
         # routage dynamique vers le bon projet (teamdata vs normalised)
-        project = detect_project_from_sql(tool_input["query"])
-        return execute_bigquery(tool_input["query"], thread_ts, project)
+        project = detect_project_from_sql(query)
+        return execute_bigquery(query, thread_ts, project)
 
     elif tool_name == "search_notion":
         return search_notion(
