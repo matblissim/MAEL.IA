@@ -215,15 +215,22 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
             )
             log_claude_usage(response)
 
+            # DEBUG: Log de la première réponse
+            print(f"[DEBUG] Premier appel Claude - stop_reason: {response.stop_reason}")
+            print(f"[DEBUG] Content blocks: {[(b.type, getattr(b, 'name', None)) for b in response.content]}")
+
             iteration = 0
             while response.stop_reason == "tool_use" and iteration < 10:
                 iteration += 1
+                print(f"[DEBUG] Itération {iteration} - Exécution des tools...")
                 messages.append({"role": "assistant", "content": response.content})
 
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
+                        print(f"[DEBUG] Exécution tool: {block.name} avec input: {str(block.input)[:200]}")
                         result = execute_tool(block.name, block.input, thread_ts)
+                        print(f"[DEBUG] Résultat tool (premiers 200 chars): {str(result)[:200]}")
                         # Tronquage défensif pour éviter d'inonder le modèle
                         if isinstance(result, str) and len(result) > MAX_TOOL_CHARS:
                             result = result[:MAX_TOOL_CHARS] + " …\n(Contenu tronqué)"
@@ -239,13 +246,19 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
                     messages=messages
                 )
                 log_claude_usage(response)
+                print(f"[DEBUG] Après tool - stop_reason: {response.stop_reason}")
 
+            # DEBUG: Log de la réponse finale
+            print(f"[DEBUG] Fin boucle - Extraction du texte final...")
             final_text_parts = []
             for block in response.content:
                 if getattr(block, "type", "") == "text" and getattr(block, "text", "").strip():
                     final_text_parts.append(block.text.strip())
+                    print(f"[DEBUG] Text block trouvé: {block.text.strip()[:100]}")
+
             final_text = "\n".join(final_text_parts).strip()
             if not final_text:
+                print("[DEBUG] ⚠️ Aucun texte final généré, utilisation du fallback")
                 final_text = "🤔 Hmm, je n'ai pas de réponse claire."
 
             add_to_thread_history(thread_ts, "user", prompt)
