@@ -1,5 +1,5 @@
 # csv_export.py
-"""Outils d'export de données en CSV."""
+"""Outils d'export de données en CSV avec upload Slack."""
 
 import csv
 import io
@@ -8,9 +8,89 @@ from typing import List, Dict, Any
 from datetime import datetime
 
 
+def export_to_csv_slack(data: List[Dict[str, Any]], filename: str = None, channel: str = None, thread_ts: str = None, slack_client = None) -> str:
+    """
+    Exporte des données en CSV et uploade directement dans Slack.
+
+    Args:
+        data: Liste de dictionnaires (résultats BigQuery)
+        filename: Nom du fichier (optionnel, auto-généré si absent)
+        channel: Channel Slack où uploader
+        thread_ts: Thread Slack où uploader
+        slack_client: Client Slack pour l'upload
+
+    Returns:
+        Message de confirmation JSON
+    """
+    if not data:
+        return "❌ Aucune donnée à exporter"
+
+    if not isinstance(data, list):
+        return "❌ Le format des données n'est pas valide (doit être une liste)"
+
+    if not slack_client:
+        return "❌ Client Slack non disponible"
+
+    if not channel:
+        return "❌ Channel Slack non spécifié"
+
+    try:
+        # Générer un nom de fichier si absent
+        if not filename:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"export_{timestamp}.csv"
+
+        # S'assurer que le fichier a l'extension .csv
+        if not filename.endswith('.csv'):
+            filename += '.csv'
+
+        # Extraire les headers de la première ligne
+        if not data[0]:
+            return "❌ Les données sont vides"
+
+        headers = list(data[0].keys())
+
+        # Créer le CSV en mémoire
+        csv_buffer = io.StringIO()
+        writer = csv.DictWriter(csv_buffer, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(data)
+
+        # Récupérer le contenu CSV
+        csv_content = csv_buffer.getvalue()
+        csv_bytes = csv_content.encode('utf-8')
+
+        # Upload dans Slack
+        response = slack_client.files_upload_v2(
+            channels=channel,
+            thread_ts=thread_ts,
+            file=csv_bytes,
+            filename=filename,
+            title=filename,
+            initial_comment=f"📊 Export CSV : {len(data)} lignes, {len(headers)} colonnes"
+        )
+
+        # Compter les lignes
+        row_count = len(data)
+        col_count = len(headers)
+
+        return json.dumps({
+            "success": True,
+            "filename": filename,
+            "rows": row_count,
+            "columns": col_count,
+            "headers": headers,
+            "message": f"✅ Fichier CSV uploadé dans Slack : {filename} ({row_count} lignes, {col_count} colonnes)"
+        }, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        return f"❌ Erreur lors de l'export/upload CSV : {str(e)[:300]}"
+
+
 def export_to_csv(data: List[Dict[str, Any]], filename: str = None) -> str:
     """
-    Exporte des données JSON en format CSV.
+    Exporte des données JSON en format CSV (fichier local).
+    NOTE: Utilise export_to_csv_slack à la place pour upload direct dans Slack.
 
     Args:
         data: Liste de dictionnaires (résultats BigQuery)

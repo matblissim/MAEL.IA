@@ -12,7 +12,22 @@ from notion_tools import (
     append_to_notion_context
 )
 from context_tools import append_to_context, read_context_section
-from csv_export import export_to_csv
+from csv_export import export_to_csv, export_to_csv_slack
+
+# ---------------------------------------
+# Contexte Slack pour les exports
+# ---------------------------------------
+SLACK_CONTEXT = {
+    "client": None,
+    "channel": None,
+    "thread_ts": None
+}
+
+def set_slack_context(client, channel, thread_ts):
+    """Configure le contexte Slack pour les exports."""
+    SLACK_CONTEXT["client"] = client
+    SLACK_CONTEXT["channel"] = channel
+    SLACK_CONTEXT["thread_ts"] = thread_ts
 
 # ---------------------------------------
 # Tools (déclaration pour Anthropic)
@@ -269,12 +284,12 @@ TOOLS = [
     {
         "name": "export_to_csv",
         "description": (
-            "Exporte des résultats de requête en fichier CSV. "
+            "Exporte des résultats de requête en fichier CSV et l'uploade AUTOMATIQUEMENT dans Slack. "
             "⚠️ IMPORTANT : Utilise AUTOMATIQUEMENT cet outil quand : "
             "- L'utilisateur demande une liste / un export / un tableau "
             "- Les résultats contiennent plus de 10 lignes "
-            "- L'utilisateur dit 'export', 'csv', 'gsheet', 'excel', 'télécharge' "
-            "Le fichier CSV sera créé dans /tmp/ et l'utilisateur recevra le chemin."
+            "- L'utilisateur dit 'export', 'csv', 'gsheet', 'excel', 'télécharge', 'j'aimerais avoir' "
+            "Le fichier CSV sera uploadé directement dans le thread Slack. L'utilisateur pourra le télécharger ou l'importer dans Google Sheets."
         ),
         "input_schema": {
             "type": "object",
@@ -379,7 +394,19 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
         filename = tool_input.get("filename")
         if not data:
             return "❌ Erreur : data manquante pour l'export CSV"
-        return export_to_csv(data, filename)
+
+        # Utiliser export Slack si contexte disponible
+        if SLACK_CONTEXT["client"] and SLACK_CONTEXT["channel"]:
+            return export_to_csv_slack(
+                data=data,
+                filename=filename,
+                channel=SLACK_CONTEXT["channel"],
+                thread_ts=SLACK_CONTEXT["thread_ts"],
+                slack_client=SLACK_CONTEXT["client"]
+            )
+        else:
+            # Fallback: export local
+            return export_to_csv(data, filename)
 
     else:
         return f"❌ Tool inconnu: {tool_name}"
