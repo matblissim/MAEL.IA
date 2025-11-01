@@ -8,16 +8,25 @@ Le bilan quotidien compare les métriques de la veille avec :
 - **Le même jour du mois dernier** (même jour du cycle mensuel)
 - **Le même jour de l'année dernière** (même jour du cycle annuel)
 
-### Métriques d'acquisition
+### Métriques affichées
+
+**RÉSUMÉ :**
 - **Total acquis** : Nombre total de nouveaux abonnés
 - **Acquis promo/coupon** : Nouveaux abonnés venus via promo, coupon, parrainage ou cadeau
-- **Acquis yearly** : Nouveaux abonnés avec abonnement annuel
 - **Acquis organic** : Nouveaux abonnés organiques (sans promo)
-- **% Promo/coupon** : Pourcentage d'acquis via promo/coupon
+- **Engagement (% committed)** : Pourcentage d'abonnés committed (cannot_suspend = 1)
 
-### Métriques d'engagement
-- **Abonnés actifs** : Nombre d'abonnés actifs
-- **Abonnés payants** : Nombre d'abonnés ayant payé
+**PAR PAYS :**
+- Répartition des acquis par code pays (FR, DE, ES, etc.)
+
+**TOP COUPONS :**
+- Top 5 des coupons les plus utilisés avec nombre et pourcentage
+
+**ÉVOLUTION :**
+- Comparaison vs même jour du mois dernier
+- Comparaison vs même jour de l'année dernière
+- Pour acquis : nombre et %
+- Pour engagement : variation en points de pourcentage (pp)
 
 ## ⚙️ Configuration
 
@@ -128,46 +137,87 @@ WHERE DATE(payment_date) = '{date}'
 - `yearly = 1` : Abonnement annuel
 - On utilise `COALESCE(colonne, 0)` pour gérer les valeurs NULL
 
-### Engagement
+### Engagement (% Committed)
 
 ```sql
 SELECT
-    COUNT(DISTINCT user_key) as active_subscribers,
-    COUNT(DISTINCT CASE WHEN payment_status = 'paid' THEN user_key END) as paid_subscribers,
-    ROUND(AVG(day_in_cycle), 1) as avg_day_in_cycle
+    COUNT(DISTINCT user_key) as total_subscribers,
+    COUNT(DISTINCT CASE WHEN cannot_suspend = 1 THEN user_key END) as committed_subscribers,
+    ROUND(COUNT(DISTINCT CASE WHEN cannot_suspend = 1 THEN user_key END) * 100.0 / NULLIF(COUNT(DISTINCT user_key), 0), 1) as pct_committed
 FROM `teamdata-291012.sales.box_sales`
 WHERE DATE(date) = '{date}'
+```
+
+### Détail des coupons
+
+```sql
+SELECT
+    c.name as coupon_name,
+    COUNT(DISTINCT bs.user_key) as nb_acquis,
+    ROUND(COUNT(DISTINCT bs.user_key) * 100.0 / NULLIF(SUM(COUNT(DISTINCT bs.user_key)) OVER(), 0), 1) as pct
+FROM `teamdata-291012.sales.box_sales` bs
+LEFT JOIN `teamdata-291012.inter.coupons` c ON bs.coupon = c.code
+WHERE DATE(bs.payment_date) = '{date}'
+    AND bs.acquis_status_lvl1 <> 'LIVE'
+    AND bs.payment_status = 'paid'
+    AND bs.coupon IS NOT NULL
+GROUP BY c.name
+ORDER BY nb_acquis DESC
+LIMIT 10
+```
+
+### Split par pays
+
+```sql
+SELECT
+    dw_country_code as country,
+    COUNT(DISTINCT user_key) as nb_acquis,
+    ROUND(COUNT(DISTINCT user_key) * 100.0 / NULLIF(SUM(COUNT(DISTINCT user_key)) OVER(), 0), 1) as pct
+FROM `teamdata-291012.sales.box_sales`
+WHERE DATE(payment_date) = '{date}'
+    AND acquis_status_lvl1 <> 'LIVE'
+    AND payment_status = 'paid'
+GROUP BY dw_country_code
+ORDER BY nb_acquis DESC
 ```
 
 ## 📝 Exemple de bilan
 
 ```
-☀️ *BILAN QUOTIDIEN - Hier 2025-10-31*
+==================================================
+☀️ *BILAN QUOTIDIEN - 2025-10-31*
+==================================================
 
-📊 *ACQUISITIONS*
+📊 *RÉSUMÉ*
+• Total acquis : *245*
+• Dont promo/coupon : 156 (63.7%)
+• Dont organic : 89
+• Engagement (% committed) : *68.5%*
 
-🔹 *vs Même jour du mois dernier (2025-10-01)*
-📈 *Total acquis*: 245 (vs 198: +47 / +23.7%)
-📈 *Acquis promo/coupon*: 156 (vs 123: +33 / +26.8%)
-➡️ *% Promo/coupon*: 63.7% (vs 62.1%: +1.6 / +2.6%)
+🌍 *PAR PAYS*
+• FR : 180 (73.5%)
+• DE : 42 (17.1%)
+• ES : 23 (9.4%)
 
-🔹 *vs Même jour de l'année dernière (2024-10-31)*
-📈 *Total acquis*: 245 (vs 189: +56 / +29.6%)
-📈 *Acquis promo/coupon*: 156 (vs 98: +58 / +59.2%)
-📈 *% Promo/coupon*: 63.7% (vs 51.9%: +11.8 / +22.7%)
+🎟️ *TOP COUPONS UTILISÉS*
+1. WELCOME20 : 45 (28.8%)
+2. PROMO-OCT : 38 (24.4%)
+3. REFERRAL : 32 (20.5%)
+4. GIFT-BOX : 25 (16.0%)
+5. INFLUENCER10 : 16 (10.3%)
 
-💪 *ENGAGEMENT*
+📈 *ÉVOLUTION*
 
-🔹 *vs Même jour du mois dernier (2025-10-01)*
-📈 *Abonnés actifs*: 12,456 (vs 11,987: +469 / +3.9%)
-📈 *Abonnés payants*: 11,234 (vs 10,876: +358 / +3.3%)
+*vs 2025-10-01 (mois dernier)*
+📈 Acquis : +47 (+23.7%)
+📈 Engagement : +2.3pp
 
-🔹 *vs Même jour de l'année dernière (2024-10-31)*
-📈 *Abonnés actifs*: 12,456 (vs 10,234: +2,222 / +21.7%)
-📈 *Abonnés payants*: 11,234 (vs 9,123: +2,111 / +23.1%)
+*vs 2024-10-31 (année dernière)*
+📈 Acquis : +56 (+29.6%)
+📈 Engagement : +5.1pp
 
----
-_Généré automatiquement par Franck 🤖_
+==================================================
+_Généré par Franck 🤖_
 ```
 
 ## 🏗️ Architecture

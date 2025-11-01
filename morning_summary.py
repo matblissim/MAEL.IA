@@ -74,6 +74,7 @@ def get_acquisitions_by_coupon(date_str: str):
 def get_engagement_metrics(date_str: str):
     """
     Récupère les métriques d'engagement pour une date donnée.
+    Engagement = % de committed (cannot_suspend = 1)
 
     Args:
         date_str: Date au format YYYY-MM-DD
@@ -86,9 +87,9 @@ def get_engagement_metrics(date_str: str):
 
     query = f"""
     SELECT
-        COUNT(DISTINCT user_key) as active_subscribers,
-        COUNT(DISTINCT CASE WHEN payment_status = 'paid' THEN user_key END) as paid_subscribers,
-        ROUND(AVG(day_in_cycle), 1) as avg_day_in_cycle
+        COUNT(DISTINCT user_key) as total_subscribers,
+        COUNT(DISTINCT CASE WHEN cannot_suspend = 1 THEN user_key END) as committed_subscribers,
+        ROUND(COUNT(DISTINCT CASE WHEN cannot_suspend = 1 THEN user_key END) * 100.0 / NULLIF(COUNT(DISTINCT user_key), 0), 1) as pct_committed
     FROM `teamdata-291012.sales.box_sales`
     WHERE DATE(date) = '{date_str}'
     """
@@ -100,14 +101,93 @@ def get_engagement_metrics(date_str: str):
         if rows:
             row = dict(rows[0])
             return {
-                'active_subscribers': row.get('active_subscribers', 0),
-                'paid_subscribers': row.get('paid_subscribers', 0),
-                'avg_day_in_cycle': row.get('avg_day_in_cycle', 0)
+                'total_subscribers': row.get('total_subscribers', 0),
+                'committed_subscribers': row.get('committed_subscribers', 0),
+                'pct_committed': row.get('pct_committed', 0)
             }
         return None
     except Exception as e:
         print(f"❌ Erreur get_engagement_metrics: {e}")
         return None
+
+
+def get_coupon_details(date_str: str):
+    """
+    Récupère le détail des coupons utilisés pour une date donnée.
+
+    Args:
+        date_str: Date au format YYYY-MM-DD
+
+    Returns:
+        list de dict avec les détails par coupon
+    """
+    if not bq_client:
+        return None
+
+    query = f"""
+    SELECT
+        c.name as coupon_name,
+        COUNT(DISTINCT bs.user_key) as nb_acquis,
+        ROUND(COUNT(DISTINCT bs.user_key) * 100.0 / NULLIF(SUM(COUNT(DISTINCT bs.user_key)) OVER(), 0), 1) as pct
+    FROM `teamdata-291012.sales.box_sales` bs
+    LEFT JOIN `teamdata-291012.inter.coupons` c ON bs.coupon = c.code
+    WHERE DATE(bs.payment_date) = '{date_str}'
+        AND bs.acquis_status_lvl1 <> 'LIVE'
+        AND bs.payment_status = 'paid'
+        AND bs.coupon IS NOT NULL
+    GROUP BY c.name
+    ORDER BY nb_acquis DESC
+    LIMIT 10
+    """
+
+    try:
+        job = bq_client.query(query)
+        rows = list(job.result(timeout=30))
+
+        if rows:
+            return [dict(row) for row in rows]
+        return []
+    except Exception as e:
+        print(f"❌ Erreur get_coupon_details: {e}")
+        return []
+
+
+def get_country_breakdown(date_str: str):
+    """
+    Récupère la répartition des acquis par pays.
+
+    Args:
+        date_str: Date au format YYYY-MM-DD
+
+    Returns:
+        list de dict avec les détails par pays
+    """
+    if not bq_client:
+        return None
+
+    query = f"""
+    SELECT
+        dw_country_code as country,
+        COUNT(DISTINCT user_key) as nb_acquis,
+        ROUND(COUNT(DISTINCT user_key) * 100.0 / NULLIF(SUM(COUNT(DISTINCT user_key)) OVER(), 0), 1) as pct
+    FROM `teamdata-291012.sales.box_sales`
+    WHERE DATE(payment_date) = '{date_str}'
+        AND acquis_status_lvl1 <> 'LIVE'
+        AND payment_status = 'paid'
+    GROUP BY dw_country_code
+    ORDER BY nb_acquis DESC
+    """
+
+    try:
+        job = bq_client.query(query)
+        rows = list(job.result(timeout=30))
+
+        if rows:
+            return [dict(row) for row in rows]
+        return []
+    except Exception as e:
+        print(f"❌ Erreur get_country_breakdown: {e}")
+        return []
 
 
 def calculate_variance(current, previous):
@@ -185,96 +265,80 @@ def generate_daily_summary():
     last_month_eng = get_engagement_metrics(last_month)
     last_year_eng = get_engagement_metrics(last_year)
 
+    # Détails additionnels
+    country_breakdown = get_country_breakdown(yesterday)
+    coupon_details = get_coupon_details(yesterday)
+
     if not current_acq or not current_eng:
         return "⚠️ Impossible de générer le bilan quotidien : données manquantes"
 
     # Construire le message
     lines = []
-    lines.append("☀️ *BILAN QUOTIDIEN - Hier {}*".format(yesterday))
+    lines.append("=" * 50)
+    lines.append(f"☀️ *BILAN QUOTIDIEN - {yesterday}*")
+    lines.append("=" * 50)
     lines.append("")
 
-    # Section Acquisitions
-    lines.append("📊 *ACQUISITIONS*")
+    # ========== RÉSUMÉ GLOBAL ==========
+    lines.append("📊 *RÉSUMÉ*")
+    lines.append(f"• Total acquis : *{current_acq['total_acquis']:,}*")
+    lines.append(f"• Dont promo/coupon : {current_acq['acquis_promo']:,} ({current_acq['pct_promo']:.1f}%)")
+    lines.append(f"• Dont organic : {current_acq['acquis_organic']:,}")
+    lines.append(f"• Engagement (% committed) : *{current_eng['pct_committed']:.1f}%*")
     lines.append("")
 
-    # Comparaison avec le mois dernier
+    # ========== PAR PAYS ==========
+    if country_breakdown:
+        lines.append("🌍 *PAR PAYS*")
+        for country in country_breakdown:
+            country_code = country['country'] or 'N/A'
+            nb = int(country['nb_acquis'])
+            pct = country['pct']
+            lines.append(f"• {country_code} : {nb:,} ({pct:.1f}%)")
+        lines.append("")
+
+    # ========== TOP COUPONS ==========
+    if coupon_details:
+        lines.append("🎟️ *TOP COUPONS UTILISÉS*")
+        for i, coupon in enumerate(coupon_details[:5], 1):
+            name = coupon['coupon_name'] or 'Sans nom'
+            nb = int(coupon['nb_acquis'])
+            pct = coupon['pct']
+            lines.append(f"{i}. {name} : {nb:,} ({pct:.1f}%)")
+        lines.append("")
+
+    # ========== COMPARAISONS ==========
+    lines.append("📈 *ÉVOLUTION*")
+    lines.append("")
+
+    # vs Mois dernier
     if last_month_acq:
-        lines.append(f"🔹 *vs Même jour du mois dernier ({last_month})*")
-        lines.append(format_metric_line(
-            "Total acquis",
-            current_acq['total_acquis'],
-            last_month_acq['total_acquis']
-        ))
-        lines.append(format_metric_line(
-            "Acquis promo/coupon",
-            current_acq['acquis_promo'],
-            last_month_acq['acquis_promo']
-        ))
-        lines.append(format_metric_line(
-            "% Promo/coupon",
-            current_acq['pct_promo'],
-            last_month_acq['pct_promo'],
-            is_percentage=True
-        ))
+        lines.append(f"*vs {last_month} (mois dernier)*")
+        var_acq, var_acq_pct = calculate_variance(current_acq['total_acquis'], last_month_acq['total_acquis'])
+        emoji_acq = "📈" if var_acq > 0 else "📉" if var_acq < 0 else "➡️"
+        lines.append(f"{emoji_acq} Acquis : {var_acq:+,} ({var_acq_pct:+.1f}%)")
+
+        if last_month_eng:
+            var_eng, var_eng_pct = calculate_variance(current_eng['pct_committed'], last_month_eng['pct_committed'])
+            emoji_eng = "📈" if var_eng > 0 else "📉" if var_eng < 0 else "➡️"
+            lines.append(f"{emoji_eng} Engagement : {var_eng:+.1f}pp")
         lines.append("")
 
-    # Comparaison avec l'année dernière
+    # vs Année dernière
     if last_year_acq:
-        lines.append(f"🔹 *vs Même jour de l'année dernière ({last_year})*")
-        lines.append(format_metric_line(
-            "Total acquis",
-            current_acq['total_acquis'],
-            last_year_acq['total_acquis']
-        ))
-        lines.append(format_metric_line(
-            "Acquis promo/coupon",
-            current_acq['acquis_promo'],
-            last_year_acq['acquis_promo']
-        ))
-        lines.append(format_metric_line(
-            "% Promo/coupon",
-            current_acq['pct_promo'],
-            last_year_acq['pct_promo'],
-            is_percentage=True
-        ))
+        lines.append(f"*vs {last_year} (année dernière)*")
+        var_acq, var_acq_pct = calculate_variance(current_acq['total_acquis'], last_year_acq['total_acquis'])
+        emoji_acq = "📈" if var_acq > 0 else "📉" if var_acq < 0 else "➡️"
+        lines.append(f"{emoji_acq} Acquis : {var_acq:+,} ({var_acq_pct:+.1f}%)")
+
+        if last_year_eng:
+            var_eng, var_eng_pct = calculate_variance(current_eng['pct_committed'], last_year_eng['pct_committed'])
+            emoji_eng = "📈" if var_eng > 0 else "📉" if var_eng < 0 else "➡️"
+            lines.append(f"{emoji_eng} Engagement : {var_eng:+.1f}pp")
         lines.append("")
 
-    # Section Engagement
-    lines.append("💪 *ENGAGEMENT*")
-    lines.append("")
-
-    # Comparaison avec le mois dernier
-    if last_month_eng:
-        lines.append(f"🔹 *vs Même jour du mois dernier ({last_month})*")
-        lines.append(format_metric_line(
-            "Abonnés actifs",
-            current_eng['active_subscribers'],
-            last_month_eng['active_subscribers']
-        ))
-        lines.append(format_metric_line(
-            "Abonnés payants",
-            current_eng['paid_subscribers'],
-            last_month_eng['paid_subscribers']
-        ))
-        lines.append("")
-
-    # Comparaison avec l'année dernière
-    if last_year_eng:
-        lines.append(f"🔹 *vs Même jour de l'année dernière ({last_year})*")
-        lines.append(format_metric_line(
-            "Abonnés actifs",
-            current_eng['active_subscribers'],
-            last_year_eng['active_subscribers']
-        ))
-        lines.append(format_metric_line(
-            "Abonnés payants",
-            current_eng['paid_subscribers'],
-            last_year_eng['paid_subscribers']
-        ))
-        lines.append("")
-
-    lines.append("---")
-    lines.append("_Généré automatiquement par Franck 🤖_")
+    lines.append("=" * 50)
+    lines.append("_Généré par Franck 🤖_")
 
     return "\n".join(lines)
 
