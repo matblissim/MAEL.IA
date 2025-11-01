@@ -197,6 +197,12 @@ def calculate_variance(current, previous):
     Returns:
         tuple (variance_abs, variance_pct)
     """
+    # Gérer les None
+    if current is None:
+        current = 0
+    if previous is None:
+        previous = 0
+
     if previous == 0:
         return (current, 100.0 if current > 0 else 0.0)
 
@@ -292,16 +298,16 @@ def get_country_acquisitions_with_comparisons(date_str: str, date_m1: str, date_
     ),
     top_coupon_per_country AS (
       SELECT
-        dw_country_code as country,
+        bs.dw_country_code as country,
         c.name as top_coupon,
-        ROW_NUMBER() OVER (PARTITION BY dw_country_code ORDER BY COUNT(DISTINCT user_key) DESC) as rn
+        ROW_NUMBER() OVER (PARTITION BY bs.dw_country_code ORDER BY COUNT(DISTINCT bs.user_key) DESC) as rn
       FROM `teamdata-291012.sales.box_sales` bs
       LEFT JOIN `teamdata-291012.inter.coupons` c ON bs.coupon = c.code
       WHERE DATE(bs.payment_date) = '{date_str}'
         AND bs.acquis_status_lvl1 <> 'LIVE'
         AND bs.payment_status = 'paid'
         AND bs.coupon IS NOT NULL
-      GROUP BY dw_country_code, c.name
+      GROUP BY bs.dw_country_code, c.name
     )
     SELECT
       cd.country,
