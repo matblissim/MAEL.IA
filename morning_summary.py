@@ -260,65 +260,57 @@ def get_country_acquisitions_with_comparisons():
         return {'raw_data': [], 'aggregated': []}
 
     query = """
-    WITH src AS (
+    -- Identifier le(s) jour(s) de cycle correspondant à HIER
+    WITH yesterday_cycle AS (
       SELECT
-        DATE(payment_date) AS payment_date,
-        dw_country_code AS country,
-        acquis_status_lvl2,
         month,
-        coupon,
-        cannot_suspend,
-        diff_current_box
+        day_in_cycle
       FROM `teamdata-291012.sales.box_sales`
       WHERE acquis_status_lvl1 = 'ACQUISITION'
+        AND diff_current_box = 0
         AND day_in_cycle > 0
-        AND diff_current_box IN (0, -11)
-    ),
-
-    acquis_jour AS (
-      -- hier
-      SELECT
-        country,
-        acquis_status_lvl2,
-        month,
-        coupon,
-        cannot_suspend,
-        COUNT(*) AS nb_acquis_actuel
-      FROM src
-      WHERE diff_current_box = 0
-        AND payment_date = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
-      GROUP BY ALL
-    ),
-
-    acquis_jour_annee_prec AS (
-      -- même jour mais N-1
-      SELECT
-        country,
-        acquis_status_lvl2,
-        month,
-        coupon,
-        cannot_suspend,
-        COUNT(*) AS nb_acquis_annee_prec
-      FROM src
-      WHERE diff_current_box = -11
-        AND payment_date = DATE_SUB(DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), INTERVAL 1 YEAR)
-      GROUP BY ALL
+        AND DATE(payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+      GROUP BY month, day_in_cycle
     )
 
+    -- Comparer sur ce mois, le mois précédent et l'année précédente
     SELECT
-      DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) AS date,
-      c.country,
-      c.acquis_status_lvl2,
-      c.month,
-      c.coupon,
-      c.cannot_suspend,
-      c.nb_acquis_actuel,
-      COALESCE(p.nb_acquis_annee_prec, 0) AS nb_acquis_annee_prec,
-      SAFE_DIVIDE(c.nb_acquis_actuel - COALESCE(p.nb_acquis_annee_prec, 0), COALESCE(p.nb_acquis_annee_prec, 0)) * 100 AS variation_vs_annee_prec
-    FROM acquis_jour c
-    LEFT JOIN acquis_jour_annee_prec p
-      USING (country, acquis_status_lvl2, month, coupon, cannot_suspend)
-    ORDER BY c.country, c.nb_acquis_actuel DESC
+      b.dw_country_code AS country,
+      b.acquis_status_lvl2,
+      yc.month,
+      yc.day_in_cycle,
+      b.coupon,
+      b.cannot_suspend,
+
+      -- acquisitions d'HIER pour la box de ce mois-ci
+      COUNTIF(
+        b.diff_current_box = 0
+        AND DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+      ) AS nb_acquis_actuel,
+
+      -- même jour de cycle mais sur la box du mois précédent
+      COUNTIF(
+        b.diff_current_box = -1
+      ) AS nb_acquis_mois_prec,
+
+      -- même jour de cycle mais sur la box de l'année précédente
+      COUNTIF(
+        b.diff_current_box = -11
+      ) AS nb_acquis_annee_prec,
+
+      -- variations
+      SAFE_DIVIDE(COUNTIF(b.diff_current_box = 0), NULLIF(COUNTIF(b.diff_current_box = -1),0)) - 1 AS var_vs_mois_prec,
+      SAFE_DIVIDE(COUNTIF(b.diff_current_box = 0), NULLIF(COUNTIF(b.diff_current_box = -11),0)) - 1 AS var_vs_annee_prec
+
+    FROM `teamdata-291012.sales.box_sales` b
+    JOIN yesterday_cycle yc
+      ON b.month = yc.month
+     AND b.day_in_cycle = yc.day_in_cycle
+    WHERE b.acquis_status_lvl1 = 'ACQUISITION'
+      AND b.day_in_cycle > 0
+      AND b.diff_current_box IN (0, -1, -11)
+    GROUP BY ALL
+    ORDER BY yc.month DESC, yc.day_in_cycle DESC, country
     """
 
     try:
@@ -333,6 +325,7 @@ def get_country_acquisitions_with_comparisons():
         for row in raw_data:
             country = row['country']
             nb_actuel = row['nb_acquis_actuel']
+            nb_mois_prec = row['nb_acquis_mois_prec']
             nb_annee_prec = row['nb_acquis_annee_prec']
             cannot_suspend = row['cannot_suspend']
             coupon = row['coupon']
@@ -343,11 +336,13 @@ def get_country_acquisitions_with_comparisons():
                     'yesterday_total': 0,
                     'yesterday_committed': 0,
                     'yesterday_coupons': {},
-                    'lastyear_total': 0
+                    'month_prec_total': 0,
+                    'year_prec_total': 0
                 }
 
             country_stats[country]['yesterday_total'] += nb_actuel
-            country_stats[country]['lastyear_total'] += nb_annee_prec
+            country_stats[country]['month_prec_total'] += nb_mois_prec
+            country_stats[country]['year_prec_total'] += nb_annee_prec
 
             if cannot_suspend == 1:
                 country_stats[country]['yesterday_committed'] += nb_actuel
@@ -366,10 +361,10 @@ def get_country_acquisitions_with_comparisons():
                 if stats['yesterday_coupons']:
                     top_coupon = max(stats['yesterday_coupons'].items(), key=lambda x: x[1])[0]
 
-                # Variance N-1
+                # Variance N-1 (année précédente)
                 var_n1_pct = 0
-                if stats['lastyear_total'] > 0:
-                    var_n1_pct = ((stats['yesterday_total'] - stats['lastyear_total']) / stats['lastyear_total']) * 100
+                if stats['year_prec_total'] > 0:
+                    var_n1_pct = ((stats['yesterday_total'] - stats['year_prec_total']) / stats['year_prec_total']) * 100
                 elif stats['yesterday_total'] > 0:
                     var_n1_pct = 100
 
@@ -379,7 +374,8 @@ def get_country_acquisitions_with_comparisons():
                 aggregated.append({
                     'country': country,
                     'nb_acquis': stats['yesterday_total'],
-                    'nb_acquis_n1': stats['lastyear_total'],
+                    'nb_acquis_n1': stats['year_prec_total'],
+                    'nb_acquis_m1': stats['month_prec_total'],
                     'pct_committed': round(pct_committed, 1),
                     'top_coupon': top_coupon,
                     'var_n1_pct': round(var_n1_pct, 1),
