@@ -263,12 +263,10 @@ def get_country_acquisitions_with_comparisons():
     WITH LY AS (
       SELECT
         dw_country_code,
-        acquis_status_lvl2,
         day_in_cycle,
         raffed,
         coupon,
         cannot_suspend,
-        MAX(DATE(payment_date)) as date,
         COUNT(*) as nbly
       FROM `teamdata-291012.sales.box_sales`
       WHERE diff_current_box = -11
@@ -279,33 +277,30 @@ def get_country_acquisitions_with_comparisons():
     TY AS (
       SELECT
         dw_country_code,
-        acquis_status_lvl2,
         day_in_cycle,
         coupon,
         raffed,
         cannot_suspend,
-        MAX(DATE(payment_date)) as date,
         COUNT(*) as nbty
       FROM `teamdata-291012.sales.box_sales`
       WHERE diff_current_box = 0
         AND acquis_status_lvl1 = 'ACQUISITION'
         AND acquis_status_lvl2 <> 'Unknown'
+        AND DATE(payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)  -- JUST YESTERDAY
       GROUP BY ALL
     ),
     country_aggregated AS (
       SELECT
         dw_country_code,
-        TY.date,
         SUM(nbly) as total_last_year,
         SUM(nbty) as total_this_year,
         SUM(CASE WHEN TY.raffed = 1 OR TY.cannot_suspend = 1 THEN nbty ELSE 0 END) as nb_promo_ty,
         -- Coupon le plus fréquent
         ARRAY_AGG(TY.coupon ORDER BY nbty DESC LIMIT 1)[OFFSET(0)] as top_coupon
       FROM TY
-      LEFT JOIN LY USING(day_in_cycle, acquis_status_lvl2, dw_country_code)
-      WHERE day_in_cycle > 0
-        AND DATE_DIFF(CURRENT_DATE(), TY.date, DAY) = 1  -- JUSTE HIER, pas 1-10 jours
-      GROUP BY dw_country_code, TY.date
+      LEFT JOIN LY USING(day_in_cycle, dw_country_code)
+      WHERE TY.day_in_cycle > 0
+      GROUP BY dw_country_code
     )
     SELECT
       dw_country_code as country,
@@ -503,12 +498,14 @@ def generate_daily_summary():
 
             # Prendre les premières campagnes (max 5)
             for i, campaign in enumerate(crm_data[:5]):
-                # Extraire les données (adapter selon la vraie structure)
-                camp_name = str(campaign.get('campaign_name', campaign.get('name', 'N/A')))[:20]
-                country = str(campaign.get('country', campaign.get('dw_country_code', 'N/A')))
-                sent = campaign.get('sent', campaign.get('emails_sent', 0))
-                opened = campaign.get('opened', campaign.get('unique_opens', 0))
-                clicked = campaign.get('clicked', campaign.get('unique_clicks', 0))
+                # Extraire les données avec les vrais noms de colonnes
+                camp_name = str(campaign.get('name', 'N/A'))[:20]
+                country = str(campaign.get('custom_Country', 'N/A'))
+
+                # delivered = envoyés réellement, targeted = ciblés
+                sent = int(campaign.get('delivered', campaign.get('targeted', 0)))
+                opened = int(campaign.get('open_uniques', 0))
+                clicked = int(campaign.get('click_uniques', 0))
 
                 # Calculer open rate
                 open_rate = (opened / sent * 100) if sent > 0 else 0
