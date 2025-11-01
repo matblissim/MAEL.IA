@@ -272,7 +272,7 @@ def get_country_acquisitions_with_comparisons():
     FROM `teamdata-291012.sales.box_sales`
     WHERE acquis_status_lvl1 = 'ACQUISITION'
         AND day_in_cycle > 0
-        AND diff_current_box BETWEEN -1 AND 0
+        AND diff_current_box IN (0, -11)  -- 0 = box actuelle (nov 2024), -11 = même box l'année dernière (nov 2023)
     GROUP BY ALL
     HAVING DATE_DIFF(CURRENT_DATE(), date, DAY) < 31
         AND date <= CURRENT_DATE()
@@ -330,9 +330,9 @@ def get_country_acquisitions_with_comparisons():
                         country_stats[country]['yesterday_coupons'][coupon] = 0
                     country_stats[country]['yesterday_coupons'][coupon] += nb
 
-            # COMPARAISON N-1 : même (mois, day_in_cycle) l'année dernière (diff_current_box = -1)
+            # COMPARAISON N-1 : même (mois, day_in_cycle) l'année dernière (diff_current_box = -11)
             # On compare (mois, day_in_cycle) à (mois, day_in_cycle) !
-            if diff_box == -1 and country in yesterday_cycles:
+            if diff_box == -11 and country in yesterday_cycles:
                 month = date.month
                 if (month, day_cycle) in yesterday_cycles[country]:
                     country_stats[country]['lastyear_total'] += nb
