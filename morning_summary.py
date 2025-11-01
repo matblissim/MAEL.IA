@@ -399,15 +399,20 @@ def get_country_acquisitions_with_comparisons():
             nb_annee_prec = row['nb_acquis_annee_prec']
             cannot_suspend = row['cannot_suspend']
             coupon = row['coupon']
+            acquis_status_lvl2 = row.get('acquis_status_lvl2', '')
 
             if country not in country_stats:
                 country_stats[country] = {
                     'country': country,
                     'yesterday_total': 0,
                     'yesterday_committed': 0,
+                    'yesterday_new_new': 0,
                     'yesterday_coupons': {},
                     'month_prec_total': 0,
-                    'year_prec_total': 0
+                    'month_prec_committed': 0,
+                    'year_prec_total': 0,
+                    'year_prec_committed': 0,
+                    'year_prec_new_new': 0
                 }
 
             country_stats[country]['yesterday_total'] += nb_actuel
@@ -416,6 +421,12 @@ def get_country_acquisitions_with_comparisons():
 
             if cannot_suspend == 1:
                 country_stats[country]['yesterday_committed'] += nb_actuel
+                country_stats[country]['year_prec_committed'] += nb_annee_prec
+                country_stats[country]['month_prec_committed'] += nb_mois_prec
+
+            if acquis_status_lvl2 == 'NEW NEW':
+                country_stats[country]['yesterday_new_new'] += nb_actuel
+                country_stats[country]['year_prec_new_new'] += nb_annee_prec
 
             if coupon:
                 if coupon not in country_stats[country]['yesterday_coupons']:
@@ -442,8 +453,13 @@ def get_country_acquisitions_with_comparisons():
                 elif stats['yesterday_total'] > 0:
                     var_n1_pct = 100
 
-                # % committed
+                # % committed hier vs N-1
                 pct_committed = (stats['yesterday_committed'] / stats['yesterday_total']) * 100 if stats['yesterday_total'] > 0 else 0
+                pct_committed_n1 = (stats['year_prec_committed'] / stats['year_prec_total']) * 100 if stats['year_prec_total'] > 0 else 0
+
+                # % NEW NEW hier vs N-1
+                pct_new_new = (stats['yesterday_new_new'] / stats['yesterday_total']) * 100 if stats['yesterday_total'] > 0 else 0
+                pct_new_new_n1 = (stats['year_prec_new_new'] / stats['year_prec_total']) * 100 if stats['year_prec_total'] > 0 else 0
 
                 # Cumul du cycle
                 cycle_cumul_ty = cycle_cumul_data.get(country, {}).get('cycle_cumul_ty', 0)
@@ -462,6 +478,9 @@ def get_country_acquisitions_with_comparisons():
                     'nb_acquis_n1': stats['year_prec_total'],
                     'nb_acquis_m1': stats['month_prec_total'],
                     'pct_committed': round(pct_committed, 1),
+                    'pct_committed_n1': round(pct_committed_n1, 1),
+                    'pct_new_new': round(pct_new_new, 1),
+                    'pct_new_new_n1': round(pct_new_new_n1, 1),
                     'top_coupon': top_coupon,
                     'var_n1_pct': round(var_n1_pct, 1),
                     'cycle_cumul_ty': cycle_cumul_ty,
@@ -506,13 +525,13 @@ def get_country_flag(country_code: str) -> str:
 def generate_analytical_insight(country_data: dict) -> str:
     """
     Génère un insight analytique sophistiqué pour un pays.
-    Style "boss de la data analyse" avec comparaison M-1 et N-1.
+    Style "boss de la data analyse" avec comparaison M-1 et N-1 et multi-métriques.
 
     Args:
         country_data: dict avec les métriques du pays
 
     Returns:
-        str: insight analytique
+        str: insight analytique riche avec compensations
     """
     country = country_data['country']
     flag = get_country_flag(country)
@@ -522,6 +541,9 @@ def generate_analytical_insight(country_data: dict) -> str:
     var_n1_pct = country_data['var_n1_pct']
     cycle_var_pct = country_data['cycle_var_pct']
     pct_committed = country_data['pct_committed']
+    pct_committed_n1 = country_data['pct_committed_n1']
+    pct_new_new = country_data['pct_new_new']
+    pct_new_new_n1 = country_data['pct_new_new_n1']
 
     # Calculer var M-1
     var_m1_pct = 0
@@ -530,55 +552,83 @@ def generate_analytical_insight(country_data: dict) -> str:
     elif nb_acquis > 0:
         var_m1_pct = 100
 
-    # Analyser les patterns
+    # Calculer évolutions des métriques qualité
+    delta_committed = pct_committed - pct_committed_n1
+    delta_new_new = pct_new_new - pct_new_new_n1
+
+    # Construire l'insight avec nuances et compensations
     parts = []
 
-    # 1. Performance globale
-    if abs(var_n1_pct) >= 20:
-        direction = "forte croissance" if var_n1_pct > 0 else "baisse significative"
-        parts.append(f"{direction} ({var_n1_pct:+.0f}% N-1)")
-    elif abs(var_n1_pct) >= 10:
-        direction = "croissance soutenue" if var_n1_pct > 0 else "recul modéré"
-        parts.append(f"{direction} ({var_n1_pct:+.0f}% N-1)")
-    elif abs(var_n1_pct) >= 5:
-        direction = "légère hausse" if var_n1_pct > 0 else "légère baisse"
-        parts.append(f"{direction} ({var_n1_pct:+.0f}% N-1)")
-    else:
+    # 1. Performance globale avec nuances
+    if var_n1_pct >= 20:
+        parts.append(f"forte croissance ({var_n1_pct:+.0f}% N-1)")
+    elif var_n1_pct >= 10:
+        parts.append(f"belle progression ({var_n1_pct:+.0f}% N-1)")
+    elif var_n1_pct >= 3:
+        parts.append(f"légèrement au-dessus de N-1 ({var_n1_pct:+.0f}%)")
+    elif var_n1_pct >= -3:
         parts.append(f"stable vs N-1 ({var_n1_pct:+.0f}%)")
+    elif var_n1_pct >= -10:
+        parts.append(f"un peu en retrait vs N-1 ({var_n1_pct:+.0f}%)")
+    elif var_n1_pct >= -20:
+        parts.append(f"recul modéré ({var_n1_pct:+.0f}% N-1)")
+    else:
+        parts.append(f"baisse marquée ({var_n1_pct:+.0f}% N-1)")
 
-    # 2. Contexte M-1 pour identifier tendance ou volatilité
-    if abs(var_m1_pct) >= 15:
+    # 2. Compensations et signaux qualitatifs
+    compensations = []
+
+    # Committed en hausse compense une baisse de volume
+    if var_n1_pct < 0 and delta_committed >= 5:
+        compensations.append(f"mais +{delta_committed:.0f}pp committed compense")
+    elif var_n1_pct < 0 and delta_committed >= 3:
+        compensations.append(f"partiellement compensé par committed (+{delta_committed:.0f}pp)")
+
+    # Committed en baisse aggrave une situation
+    if var_n1_pct < -5 and delta_committed < -3:
+        compensations.append(f"aggravé par baisse committed ({delta_committed:.0f}pp)")
+
+    # NEW NEW en baisse = signal d'alerte
+    if delta_new_new < -5 and pct_new_new_n1 > 0:
+        compensations.append(f"attention NEW NEW {delta_new_new:.0f}pp")
+
+    # NEW NEW en hausse = bon signal
+    if delta_new_new >= 5:
+        compensations.append(f"NEW NEW dynamique (+{delta_new_new:.0f}pp)")
+
+    # Committed exceptionnellement haut
+    if pct_committed >= 60 and delta_committed >= 3:
+        compensations.append(f"excellente qualité ({pct_committed:.0f}% committed)")
+
+    # 3. Contexte M-1 et cycle
+    contexte = []
+
+    # Tendance confirmée ou volatilité
+    if abs(var_m1_pct) >= 10:
         if (var_n1_pct > 0 and var_m1_pct > 0) or (var_n1_pct < 0 and var_m1_pct < 0):
-            # Même direction = tendance
-            parts.append(f"tendance confirmée M-1 ({var_m1_pct:+.0f}%)")
+            contexte.append(f"tendance confirmée M-1 ({var_m1_pct:+.0f}%)")
         else:
-            # Direction opposée = volatilité
-            parts.append(f"forte volatilité M-1 ({var_m1_pct:+.0f}%)")
+            contexte.append(f"volatilité M-1 ({var_m1_pct:+.0f}%)")
 
-    # 3. Analyse du cycle (momentum long terme)
-    if abs(cycle_var_pct - var_n1_pct) >= 15:
-        if cycle_var_pct > var_n1_pct:
-            parts.append(f"momentum positif sur le cycle ({cycle_var_pct:+.0f}%)")
-        else:
-            parts.append(f"ralentissement en cours (cycle {cycle_var_pct:+.0f}%)")
+    # Momentum cycle vs jour
+    if abs(cycle_var_pct - var_n1_pct) >= 10:
+        if cycle_var_pct > var_n1_pct + 5:
+            contexte.append(f"momentum cycle positif ({cycle_var_pct:+.0f}%)")
+        elif cycle_var_pct < var_n1_pct - 5:
+            contexte.append(f"cycle en ralentissement ({cycle_var_pct:+.0f}%)")
 
-    # 4. Signal qualité (committed)
-    if pct_committed >= 60:
-        parts.append(f"excellente qualité d'acquis ({pct_committed:.0f}% committed)")
-    elif pct_committed <= 25 and nb_acquis >= 10:
-        parts.append(f"attention à la rétention ({pct_committed:.0f}% committed)")
+    # Assembler l'insight final
+    insight_parts = [parts[0]]  # Toujours la performance globale
 
-    # 5. Si pas assez d'insights, ajouter un contexte
-    if len(parts) <= 1:
-        # Analyser la divergence jour vs cycle
-        if abs(var_n1_pct - cycle_var_pct) >= 10:
-            if var_n1_pct > cycle_var_pct:
-                parts.append(f"accélération récente (cycle {cycle_var_pct:+.0f}%)")
-            else:
-                parts.append(f"performance contrastée (cycle {cycle_var_pct:+.0f}%)")
+    # Ajouter compensations (priorité haute)
+    if compensations:
+        insight_parts.extend(compensations[:2])  # Max 2 compensations
 
-    # Construire l'insight final
-    insight = f"• {flag} *{country}*: " + ", ".join(parts[:3])  # Max 3 points pour lisibilité
+    # Ajouter contexte si il reste de la place
+    if len(insight_parts) < 3 and contexte:
+        insight_parts.extend(contexte[:1])
+
+    insight = f"• {flag} *{country}*: " + ", ".join(insight_parts)
 
     return insight
 
