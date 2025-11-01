@@ -248,10 +248,80 @@ def format_metric_line(label, current, previous, is_percentage=False):
     return f"{emoji} *{label}*: {current_str} (vs {previous_str}: {symbol}{variance_abs:+.0f} / {symbol}{variance_pct:+.1f}%)"
 
 
+def get_cycle_cumul():
+    """
+    Calcule le cumul du cycle depuis le début jusqu'à hier.
+    Compare avec la même période l'année dernière.
+
+    Returns:
+        dict {country: {'cycle_cumul_ty': int, 'cycle_cumul_ly': int}}
+    """
+    if not bq_client:
+        return {}
+
+    query = """
+    -- Identifier le max(day_in_cycle) d'hier par pays
+    WITH yesterday_max_cycle AS (
+      SELECT
+        dw_country_code,
+        month,
+        MAX(day_in_cycle) as max_day_in_cycle
+      FROM `teamdata-291012.sales.box_sales`
+      WHERE diff_current_box = 0
+        AND DATE(payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+        AND acquis_status_lvl1 = 'ACQUISITION'
+        AND day_in_cycle > 0
+      GROUP BY dw_country_code, month
+    )
+
+    SELECT
+      b.dw_country_code AS country,
+
+      -- Cumul actuel (depuis début cycle jusqu'à hier)
+      COUNTIF(
+        b.diff_current_box = 0
+        AND b.day_in_cycle <= ymc.max_day_in_cycle
+      ) AS cycle_cumul_ty,
+
+      -- Cumul N-1 (même période l'année dernière)
+      COUNTIF(
+        b.diff_current_box = -11
+        AND b.day_in_cycle <= ymc.max_day_in_cycle
+      ) AS cycle_cumul_ly
+
+    FROM `teamdata-291012.sales.box_sales` b
+    JOIN yesterday_max_cycle ymc
+      ON b.dw_country_code = ymc.dw_country_code
+      AND b.month = ymc.month
+    WHERE b.acquis_status_lvl1 = 'ACQUISITION'
+      AND b.day_in_cycle > 0
+      AND b.diff_current_box IN (0, -11)
+    GROUP BY b.dw_country_code
+    ORDER BY cycle_cumul_ty DESC
+    """
+
+    try:
+        job = bq_client.query(query)
+        rows = list(job.result(timeout=60))
+
+        result = {}
+        for row in rows:
+            result[row['country']] = {
+                'cycle_cumul_ty': row['cycle_cumul_ty'],
+                'cycle_cumul_ly': row['cycle_cumul_ly']
+            }
+        return result
+    except Exception as e:
+        print(f"❌ Erreur get_cycle_cumul: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
 def get_country_acquisitions_with_comparisons():
     """
-    Récupère les acquisitions par pays des 31 derniers jours.
-    Basé sur la requête utilisateur avec diff_current_box between -1 and 0.
+    Récupère les acquisitions d'hier par pays avec comparaisons N-1 et M-1.
+    Utilise (month, day_in_cycle) pour les comparaisons.
 
     Returns:
         dict avec raw_data (liste brute) et aggregated (agrégé par pays pour hier vs N-1)
@@ -352,6 +422,10 @@ def get_country_acquisitions_with_comparisons():
                     country_stats[country]['yesterday_coupons'][coupon] = 0
                 country_stats[country]['yesterday_coupons'][coupon] += nb_actuel
 
+        # Récupérer le cumul du cycle
+        print("[Morning Summary] Calcul du cumul du cycle...")
+        cycle_cumul_data = get_cycle_cumul()
+
         # Calculer les métriques finales
         aggregated = []
         for country, stats in country_stats.items():
@@ -371,6 +445,17 @@ def get_country_acquisitions_with_comparisons():
                 # % committed
                 pct_committed = (stats['yesterday_committed'] / stats['yesterday_total']) * 100 if stats['yesterday_total'] > 0 else 0
 
+                # Cumul du cycle
+                cycle_cumul_ty = cycle_cumul_data.get(country, {}).get('cycle_cumul_ty', 0)
+                cycle_cumul_ly = cycle_cumul_data.get(country, {}).get('cycle_cumul_ly', 0)
+
+                # Variance du cumul
+                cycle_var_pct = 0
+                if cycle_cumul_ly > 0:
+                    cycle_var_pct = ((cycle_cumul_ty - cycle_cumul_ly) / cycle_cumul_ly) * 100
+                elif cycle_cumul_ty > 0:
+                    cycle_var_pct = 100
+
                 aggregated.append({
                     'country': country,
                     'nb_acquis': stats['yesterday_total'],
@@ -379,9 +464,9 @@ def get_country_acquisitions_with_comparisons():
                     'pct_committed': round(pct_committed, 1),
                     'top_coupon': top_coupon,
                     'var_n1_pct': round(var_n1_pct, 1),
-                    'cycle_cumul_ty': 0,  # À implémenter si besoin
-                    'cycle_cumul_ly': 0,
-                    'cycle_var_pct': 0
+                    'cycle_cumul_ty': cycle_cumul_ty,
+                    'cycle_cumul_ly': cycle_cumul_ly,
+                    'cycle_var_pct': round(cycle_var_pct, 1)
                 })
 
         # Trier par nb_acquis DESC
