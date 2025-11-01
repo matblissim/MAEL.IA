@@ -260,83 +260,82 @@ def get_country_acquisitions_with_comparisons():
         return {'raw_data': [], 'aggregated': []}
 
     query = """
-    WITH yesterday_cycles AS (
-      -- Identifier les (country, month, max_day_in_cycle) d'HIER (CURRENT_DATE - 1)
+    WITH src AS (
       SELECT
-        dw_country_code,
+        DATE(payment_date) AS payment_date,
+        dw_country_code AS country,
+        acquis_status_lvl2,
         month,
-        MAX(day_in_cycle) as max_day_in_cycle
+        coupon,
+        cannot_suspend,
+        diff_current_box
       FROM `teamdata-291012.sales.box_sales`
       WHERE acquis_status_lvl1 = 'ACQUISITION'
         AND day_in_cycle > 0
-        AND diff_current_box = 0
-        AND DATE(payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
-      GROUP BY dw_country_code, month
-    )
-    SELECT
-        DATE(payment_date) as date,
-        bs.dw_country_code as country,
+        AND diff_current_box IN (0, -11)
+    ),
+
+    acquis_jour AS (
+      -- hier
+      SELECT
+        country,
         acquis_status_lvl2,
-        diff_current_box,
-        bs.day_in_cycle,
-        bs.month,
+        month,
         coupon,
         cannot_suspend,
-        COUNT(*) as nb_acquis
-    FROM `teamdata-291012.sales.box_sales` bs
-    INNER JOIN yesterday_cycles yc
-      ON bs.dw_country_code = yc.dw_country_code
-      AND bs.month = yc.month
-    WHERE acquis_status_lvl1 = 'ACQUISITION'
-        AND bs.day_in_cycle > 0
-        AND diff_current_box IN (0, -11)
-        AND (
-          -- HIER : diff_current_box = 0, date = CURRENT_DATE - 1
-          (diff_current_box = 0 AND DATE(payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY))
-          OR
-          -- CUMUL CYCLE : tous les jours jusqu'à max_day_in_cycle (pour les 2 boxes)
-          (bs.day_in_cycle <= yc.max_day_in_cycle)
-        )
-    GROUP BY ALL
-    ORDER BY date DESC, country, nb_acquis DESC
+        COUNT(*) AS nb_acquis_actuel
+      FROM src
+      WHERE diff_current_box = 0
+        AND payment_date = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+      GROUP BY ALL
+    ),
+
+    acquis_jour_annee_prec AS (
+      -- même jour mais N-1
+      SELECT
+        country,
+        acquis_status_lvl2,
+        month,
+        coupon,
+        cannot_suspend,
+        COUNT(*) AS nb_acquis_annee_prec
+      FROM src
+      WHERE diff_current_box = -11
+        AND payment_date = DATE_SUB(DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), INTERVAL 1 YEAR)
+      GROUP BY ALL
+    )
+
+    SELECT
+      DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) AS date,
+      c.country,
+      c.acquis_status_lvl2,
+      c.month,
+      c.coupon,
+      c.cannot_suspend,
+      c.nb_acquis_actuel,
+      COALESCE(p.nb_acquis_annee_prec, 0) AS nb_acquis_annee_prec,
+      SAFE_DIVIDE(c.nb_acquis_actuel - COALESCE(p.nb_acquis_annee_prec, 0), COALESCE(p.nb_acquis_annee_prec, 0)) * 100 AS variation_vs_annee_prec
+    FROM acquis_jour c
+    LEFT JOIN acquis_jour_annee_prec p
+      USING (country, acquis_status_lvl2, month, coupon, cannot_suspend)
+    ORDER BY c.country, c.nb_acquis_actuel DESC
     """
 
     try:
         job = bq_client.query(query)
         raw_data = [dict(row) for row in job.result(timeout=60)]
 
-        # La requête SQL filtre déjà sur CURRENT_DATE - 1
-        # Plus besoin de chercher latest_date dynamiquement
         from datetime import datetime, timedelta
         yesterday = (datetime.now() - timedelta(days=1)).date()
 
-        # PREMIÈRE PASSE : identifier les (month, day_in_cycle) d'hier par pays
-        yesterday_cycles = {}  # {country: set((month, day_in_cycle))}
-        max_day_cycles = {}  # {country: max_day_in_cycle}
-        for row in raw_data:
-            if row['diff_current_box'] == 0:  # Toutes les rows diff=0 sont déjà d'hier grâce à la requête
-                country = row['country']
-                day_cycle = row['day_in_cycle']
-                month = row['month']  # Colonne month de box_sales
-                if country not in yesterday_cycles:
-                    yesterday_cycles[country] = set()
-                    max_day_cycles[country] = 0
-                yesterday_cycles[country].add((month, day_cycle))
-                max_day_cycles[country] = max(max_day_cycles[country], day_cycle)
-
-        print(f"[DEBUG] (month, day_in_cycle) d'hier par pays: {yesterday_cycles}")
-        print(f"[DEBUG] Max day_in_cycle par pays: {max_day_cycles}")
-
-        # DEUXIÈME PASSE : grouper par pays en comparant les mêmes day_in_cycle
+        # Agréger par pays
         country_stats = {}
         for row in raw_data:
             country = row['country']
-            date = row['date']
-            diff_box = row['diff_current_box']
-            nb = row['nb_acquis']
+            nb_actuel = row['nb_acquis_actuel']
+            nb_annee_prec = row['nb_acquis_annee_prec']
             cannot_suspend = row['cannot_suspend']
             coupon = row['coupon']
-            day_cycle = row['day_in_cycle']
 
             if country not in country_stats:
                 country_stats[country] = {
@@ -344,38 +343,19 @@ def get_country_acquisitions_with_comparisons():
                     'yesterday_total': 0,
                     'yesterday_committed': 0,
                     'yesterday_coupons': {},
-                    'lastyear_total': 0,
-                    'cycle_cumul_ty': 0,  # Cumul du cycle cette année
-                    'cycle_cumul_ly': 0   # Cumul du cycle l'année dernière
+                    'lastyear_total': 0
                 }
 
-            # Hier (diff_current_box = 0, date = CURRENT_DATE - 1)
-            # La requête SQL filtre déjà sur CURRENT_DATE - 1
-            if date == yesterday and diff_box == 0:
-                country_stats[country]['yesterday_total'] += nb
-                if cannot_suspend == 1:
-                    country_stats[country]['yesterday_committed'] += nb
-                if coupon:
-                    if coupon not in country_stats[country]['yesterday_coupons']:
-                        country_stats[country]['yesterday_coupons'][coupon] = 0
-                    country_stats[country]['yesterday_coupons'][coupon] += nb
+            country_stats[country]['yesterday_total'] += nb_actuel
+            country_stats[country]['lastyear_total'] += nb_annee_prec
 
-            # COMPARAISON N-1 : même (month, day_in_cycle) l'année dernière (diff_current_box = -11)
-            # On compare (month, day_in_cycle) de box_sales pour être robuste
-            if diff_box == -11 and country in yesterday_cycles:
-                month = row['month']  # Colonne month de box_sales
-                if (month, day_cycle) in yesterday_cycles[country]:
-                    country_stats[country]['lastyear_total'] += nb
+            if cannot_suspend == 1:
+                country_stats[country]['yesterday_committed'] += nb_actuel
 
-            # CUMUL DU CYCLE : depuis le début jusqu'à hier (tous les day_in_cycle <= max)
-            if country in max_day_cycles:
-                max_cycle = max_day_cycles[country]
-                # Cumul cette année (diff_current_box = 0, tous les jours jusqu'à max_cycle)
-                if diff_box == 0 and day_cycle <= max_cycle:
-                    country_stats[country]['cycle_cumul_ty'] += nb
-                # Cumul l'année dernière (diff_current_box = -11, tous les jours jusqu'à max_cycle)
-                elif diff_box == -11 and day_cycle <= max_cycle:
-                    country_stats[country]['cycle_cumul_ly'] += nb
+            if coupon:
+                if coupon not in country_stats[country]['yesterday_coupons']:
+                    country_stats[country]['yesterday_coupons'][coupon] = 0
+                country_stats[country]['yesterday_coupons'][coupon] += nb_actuel
 
         # Calculer les métriques finales
         aggregated = []
@@ -396,13 +376,6 @@ def get_country_acquisitions_with_comparisons():
                 # % committed
                 pct_committed = (stats['yesterday_committed'] / stats['yesterday_total']) * 100 if stats['yesterday_total'] > 0 else 0
 
-                # Variance du cumul du cycle
-                cycle_var_pct = 0
-                if stats['cycle_cumul_ly'] > 0:
-                    cycle_var_pct = ((stats['cycle_cumul_ty'] - stats['cycle_cumul_ly']) / stats['cycle_cumul_ly']) * 100
-                elif stats['cycle_cumul_ty'] > 0:
-                    cycle_var_pct = 100
-
                 aggregated.append({
                     'country': country,
                     'nb_acquis': stats['yesterday_total'],
@@ -410,9 +383,9 @@ def get_country_acquisitions_with_comparisons():
                     'pct_committed': round(pct_committed, 1),
                     'top_coupon': top_coupon,
                     'var_n1_pct': round(var_n1_pct, 1),
-                    'cycle_cumul_ty': stats['cycle_cumul_ty'],
-                    'cycle_cumul_ly': stats['cycle_cumul_ly'],
-                    'cycle_var_pct': round(cycle_var_pct, 1)
+                    'cycle_cumul_ty': 0,  # À implémenter si besoin
+                    'cycle_cumul_ly': 0,
+                    'cycle_var_pct': 0
                 })
 
         # Trier par nb_acquis DESC
@@ -421,7 +394,7 @@ def get_country_acquisitions_with_comparisons():
         return {
             'raw_data': raw_data,
             'aggregated': aggregated,
-            'latest_date': latest_date  # Retourner la date pour l'affichage
+            'latest_date': yesterday
         }
 
     except Exception as e:
