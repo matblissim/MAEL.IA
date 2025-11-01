@@ -53,7 +53,7 @@ except Exception as e:
 # ---------- Notion (optionnel) ----------
 notion_client = None
 NOTION_CONTEXT_PAGE_ID = os.getenv("NOTION_CONTEXT_PAGE_ID")
-NOTION_STORAGE_PAGE_ID = os.getenv("NOTION_STORAGE_PAGE_ID")
+NOTION_STORAGE_PAGE_ID = os.getenv("NOTION_STORAGE_PAGE_ID") or NOTION_CONTEXT_PAGE_ID
 
 if os.getenv("NOTION_API_KEY"):
     try:
