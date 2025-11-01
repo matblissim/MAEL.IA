@@ -121,7 +121,7 @@ def setup_handlers(context: str):
             answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
 
             # Ajouter les requêtes SQL seulement si demandé
-            if any(k in prompt.lower() for k in ["sql", "requête", "requete", "query"]):
+            if any(k in prompt.lower() for k in ["sql", "requête", "requete", "query", "liste", "export", "j'aimerais avoir", "notion", "détail", "detail"]):
                 queries = get_last_queries(thread_ts)
                 if queries:
                     answer += format_sql_queries(queries)
