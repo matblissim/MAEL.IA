@@ -284,15 +284,24 @@ def get_country_acquisitions_with_comparisons():
         job = bq_client.query(query)
         raw_data = [dict(row) for row in job.result(timeout=60)]
 
-        # Agréger pour hier (date = CURRENT_DATE - 1)
-        from datetime import datetime, timedelta
-        yesterday = (datetime.now() - timedelta(days=1)).date()
+        # Trouver la date la plus récente dans diff_current_box = 0 (box actuelle)
+        latest_date = None
+        for row in raw_data:
+            if row['diff_current_box'] == 0:
+                if latest_date is None or row['date'] > latest_date:
+                    latest_date = row['date']
 
-        # PREMIÈRE PASSE : identifier les (month, day_in_cycle) d'hier par pays
+        print(f"[DEBUG] Date la plus récente (diff_current_box=0): {latest_date}")
+
+        if not latest_date:
+            print("[ERROR] Aucune donnée trouvée pour diff_current_box=0")
+            return {'raw_data': raw_data, 'aggregated': [], 'latest_date': None}
+
+        # PREMIÈRE PASSE : identifier les (month, day_in_cycle) de la date la plus récente par pays
         yesterday_cycles = {}  # {country: set((month, day_in_cycle))}
         max_day_cycles = {}  # {country: max_day_in_cycle}
         for row in raw_data:
-            if row['date'] == yesterday and row['diff_current_box'] == 0:
+            if row['date'] == latest_date and row['diff_current_box'] == 0:
                 country = row['country']
                 day_cycle = row['day_in_cycle']
                 month = row['month']  # Utiliser la colonne month de box_sales
@@ -302,7 +311,7 @@ def get_country_acquisitions_with_comparisons():
                 yesterday_cycles[country].add((month, day_cycle))
                 max_day_cycles[country] = max(max_day_cycles[country], day_cycle)
 
-        print(f"[DEBUG] (month, day_in_cycle) d'hier par pays: {yesterday_cycles}")
+        print(f"[DEBUG] (month, day_in_cycle) du {latest_date} par pays: {yesterday_cycles}")
         print(f"[DEBUG] Max day_in_cycle par pays: {max_day_cycles}")
 
         # DEUXIÈME PASSE : grouper par pays en comparant les mêmes day_in_cycle
@@ -327,8 +336,8 @@ def get_country_acquisitions_with_comparisons():
                     'cycle_cumul_ly': 0   # Cumul du cycle l'année dernière
                 }
 
-            # Hier (diff_current_box = 0, date = yesterday)
-            if date == yesterday and diff_box == 0:
+            # Date la plus récente (diff_current_box = 0, date = latest_date)
+            if date == latest_date and diff_box == 0:
                 country_stats[country]['yesterday_total'] += nb
                 if cannot_suspend == 1:
                     country_stats[country]['yesterday_committed'] += nb
@@ -397,14 +406,15 @@ def get_country_acquisitions_with_comparisons():
 
         return {
             'raw_data': raw_data,
-            'aggregated': aggregated
+            'aggregated': aggregated,
+            'latest_date': latest_date  # Retourner la date pour l'affichage
         }
 
     except Exception as e:
         print(f"❌ Erreur get_country_acquisitions_with_comparisons: {e}")
         import traceback
         traceback.print_exc()
-        return {'raw_data': [], 'aggregated': []}
+        return {'raw_data': [], 'aggregated': [], 'latest_date': None}
 
 
 def get_country_flag(country_code: str) -> str:
@@ -480,6 +490,7 @@ def generate_daily_summary():
     country_result = get_country_acquisitions_with_comparisons()
     country_data = country_result['aggregated']
     raw_data = country_result['raw_data']
+    latest_date = country_result.get('latest_date')  # Date réelle des données
 
     # Récupérer les données CRM
     crm_data = get_crm_yesterday()
@@ -487,9 +498,10 @@ def generate_daily_summary():
     if not country_data:
         return "⚠️ Impossible de générer le bilan quotidien : données manquantes"
 
-    # Construire le message
+    # Construire le message avec la date réelle des données
+    report_date = str(latest_date) if latest_date else yesterday
     lines = []
-    lines.append("📊 *Rapport Blissim – Acquisitions du {}*".format(yesterday))
+    lines.append("📊 *Rapport Blissim – Acquisitions du {}*".format(report_date))
     lines.append("")
 
     # ========== TABLEAU PAR PAYS ==========
