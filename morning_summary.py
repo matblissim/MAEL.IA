@@ -503,6 +503,86 @@ def get_country_flag(country_code: str) -> str:
     return flags.get(country_code, '🌍')
 
 
+def generate_analytical_insight(country_data: dict) -> str:
+    """
+    Génère un insight analytique sophistiqué pour un pays.
+    Style "boss de la data analyse" avec comparaison M-1 et N-1.
+
+    Args:
+        country_data: dict avec les métriques du pays
+
+    Returns:
+        str: insight analytique
+    """
+    country = country_data['country']
+    flag = get_country_flag(country)
+    nb_acquis = country_data['nb_acquis']
+    nb_acquis_m1 = country_data['nb_acquis_m1']
+    nb_acquis_n1 = country_data['nb_acquis_n1']
+    var_n1_pct = country_data['var_n1_pct']
+    cycle_var_pct = country_data['cycle_var_pct']
+    pct_committed = country_data['pct_committed']
+
+    # Calculer var M-1
+    var_m1_pct = 0
+    if nb_acquis_m1 > 0:
+        var_m1_pct = ((nb_acquis - nb_acquis_m1) / nb_acquis_m1) * 100
+    elif nb_acquis > 0:
+        var_m1_pct = 100
+
+    # Analyser les patterns
+    parts = []
+
+    # 1. Performance globale
+    if abs(var_n1_pct) >= 20:
+        direction = "forte croissance" if var_n1_pct > 0 else "baisse significative"
+        parts.append(f"{direction} ({var_n1_pct:+.0f}% N-1)")
+    elif abs(var_n1_pct) >= 10:
+        direction = "croissance soutenue" if var_n1_pct > 0 else "recul modéré"
+        parts.append(f"{direction} ({var_n1_pct:+.0f}% N-1)")
+    elif abs(var_n1_pct) >= 5:
+        direction = "légère hausse" if var_n1_pct > 0 else "légère baisse"
+        parts.append(f"{direction} ({var_n1_pct:+.0f}% N-1)")
+    else:
+        parts.append(f"stable vs N-1 ({var_n1_pct:+.0f}%)")
+
+    # 2. Contexte M-1 pour identifier tendance ou volatilité
+    if abs(var_m1_pct) >= 15:
+        if (var_n1_pct > 0 and var_m1_pct > 0) or (var_n1_pct < 0 and var_m1_pct < 0):
+            # Même direction = tendance
+            parts.append(f"tendance confirmée M-1 ({var_m1_pct:+.0f}%)")
+        else:
+            # Direction opposée = volatilité
+            parts.append(f"forte volatilité M-1 ({var_m1_pct:+.0f}%)")
+
+    # 3. Analyse du cycle (momentum long terme)
+    if abs(cycle_var_pct - var_n1_pct) >= 15:
+        if cycle_var_pct > var_n1_pct:
+            parts.append(f"momentum positif sur le cycle ({cycle_var_pct:+.0f}%)")
+        else:
+            parts.append(f"ralentissement en cours (cycle {cycle_var_pct:+.0f}%)")
+
+    # 4. Signal qualité (committed)
+    if pct_committed >= 60:
+        parts.append(f"excellente qualité d'acquis ({pct_committed:.0f}% committed)")
+    elif pct_committed <= 25 and nb_acquis >= 10:
+        parts.append(f"attention à la rétention ({pct_committed:.0f}% committed)")
+
+    # 5. Si pas assez d'insights, ajouter un contexte
+    if len(parts) <= 1:
+        # Analyser la divergence jour vs cycle
+        if abs(var_n1_pct - cycle_var_pct) >= 10:
+            if var_n1_pct > cycle_var_pct:
+                parts.append(f"accélération récente (cycle {cycle_var_pct:+.0f}%)")
+            else:
+                parts.append(f"performance contrastée (cycle {cycle_var_pct:+.0f}%)")
+
+    # Construire l'insight final
+    insight = f"• {flag} *{country}*: " + ", ".join(parts[:3])  # Max 3 points pour lisibilité
+
+    return insight
+
+
 def get_crm_yesterday():
     """
     Récupère les métriques CRM de la veille depuis normalised-417010.crm.
@@ -606,53 +686,16 @@ def generate_daily_summary():
         lines.append("")
 
     # ========== INSIGHTS ==========
-    lines.append("🧠 *2. Insights clés*")
+    lines.append("🧠 *2. Analyse data (N-1 et M-1)*")
     lines.append("")
 
-    insights = []
-
-    # Insights par pays avec variations significatives (1 ligne par pays max)
+    # Générer 1 insight analytique par pays
     if country_data:
-        total_global = sum(c['nb_acquis'] for c in country_data)
-
         for country in country_data:
-            flag = get_country_flag(country['country'])
-            country_name = country['country']
-            var_n1 = country['var_n1_pct'] or 0
-            nb = country['nb_acquis']
-            pct_committed = country['pct_committed'] or 0
-
-            country_insights = []
-
-            # Variation significative du jour (> 15% ou < -15%)
-            if abs(var_n1) >= 15:
-                emoji = "📈" if var_n1 > 0 else "📉"
-                direction = "forte hausse" if var_n1 > 0 else "baisse marquée"
-                country_insights.append(f"{direction} de {abs(var_n1):.0f}% vs N-1 hier")
-
-            # Variation significative du cycle (> 10% ou < -10%)
-            cycle_var = country.get('cycle_var_pct', 0)
-            if abs(cycle_var) >= 10:
-                emoji = "📈" if cycle_var > 0 else "📉"
-                direction = "en hausse" if cycle_var > 0 else "en baisse"
-                country_insights.append(f"cycle {direction} de {abs(cycle_var):.0f}% vs N-1")
-
-            # % Committed anormal (très élevé > 70% ou très faible < 20%)
-            if pct_committed >= 70:
-                country_insights.append(f"committed élevé ({pct_committed:.1f}%)")
-            elif pct_committed <= 20 and nb >= 10:
-                country_insights.append(f"committed faible ({pct_committed:.1f}%)")
-
-            # Si des insights pour ce pays, les combiner en une ligne
-            if country_insights:
-                insights.append(f"• {flag} *{country_name}*: {', '.join(country_insights)}")
-
-        # Si aucun insight particulier
-        if not insights:
-            insights.append(f"• Volumes stables sur tous les pays ({total_global:,} acquis total)")
-
-    for insight in insights:
-        lines.append(insight)
+            insight = generate_analytical_insight(country)
+            lines.append(insight)
+    else:
+        lines.append("• Aucune donnée disponible pour l'analyse")
 
     lines.append("")
 
