@@ -57,7 +57,20 @@ MORNING_SUMMARY_ENABLED=false
 
 ## 🧪 Tests
 
-### Test rapide en ligne de commande
+### Méthode 1 : Commande Slack (RECOMMANDÉ)
+
+Depuis n'importe quel channel Slack où le bot est présent, mentionnez Franck avec une de ces commandes :
+
+```
+@Franck morning summary
+@Franck morning
+@Franck bilan quotidien
+@Franck summary
+```
+
+Le bilan sera généré et envoyé **dans le channel où vous avez tapé la commande**.
+
+### Méthode 2 : Test rapide en ligne de commande
 
 Pour tester la génération du bilan sans l'envoyer :
 
@@ -220,12 +233,20 @@ Cela signifie que les données BigQuery ne sont pas disponibles pour la date tes
 - Que les tables contiennent des données pour la date d'hier
 - Les logs pour plus de détails sur l'erreur
 
-### Test rapide sans attendre le lendemain
+### Test rapide sans attendre le lendemain matin
 
-Utilisez le script de test :
+**Option 1 - Commande Slack:**
+```
+@Franck morning summary
+```
+
+**Option 2 - Script de test:**
 ```bash
 python test_morning_summary.py
 ```
+
+**Option 3 - Modifier l'heure temporairement:**
+Dans `.env`, changez l'heure pour dans 2 minutes et redémarrez le bot.
 
 ## 📅 Branche de développement
 
