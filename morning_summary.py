@@ -289,6 +289,7 @@ def get_country_acquisitions_with_comparisons():
 
         # PREMIÈRE PASSE : identifier les (mois, day_in_cycle) d'hier par pays
         yesterday_cycles = {}  # {country: set((month, day_in_cycle))}
+        max_day_cycles = {}  # {country: max_day_in_cycle}
         for row in raw_data:
             if row['date'] == yesterday and row['diff_current_box'] == 0:
                 country = row['country']
@@ -296,9 +297,12 @@ def get_country_acquisitions_with_comparisons():
                 month = row['date'].month  # Extraire le mois
                 if country not in yesterday_cycles:
                     yesterday_cycles[country] = set()
+                    max_day_cycles[country] = 0
                 yesterday_cycles[country].add((month, day_cycle))
+                max_day_cycles[country] = max(max_day_cycles[country], day_cycle)
 
         print(f"[DEBUG] (Mois, Cycles) d'hier par pays: {yesterday_cycles}")
+        print(f"[DEBUG] Max day_in_cycle par pays: {max_day_cycles}")
 
         # DEUXIÈME PASSE : grouper par pays en comparant les mêmes day_in_cycle
         country_stats = {}
@@ -317,7 +321,9 @@ def get_country_acquisitions_with_comparisons():
                     'yesterday_total': 0,
                     'yesterday_committed': 0,
                     'yesterday_coupons': {},
-                    'lastyear_total': 0
+                    'lastyear_total': 0,
+                    'cycle_cumul_ty': 0,  # Cumul du cycle cette année
+                    'cycle_cumul_ly': 0   # Cumul du cycle l'année dernière
                 }
 
             # Hier (diff_current_box = 0, date = yesterday)
@@ -336,6 +342,16 @@ def get_country_acquisitions_with_comparisons():
                 month = date.month
                 if (month, day_cycle) in yesterday_cycles[country]:
                     country_stats[country]['lastyear_total'] += nb
+
+            # CUMUL DU CYCLE : depuis le début jusqu'à hier (tous les day_in_cycle <= max)
+            if country in max_day_cycles:
+                max_cycle = max_day_cycles[country]
+                # Cumul cette année (diff_current_box = 0, tous les jours jusqu'à max_cycle)
+                if diff_box == 0 and day_cycle <= max_cycle:
+                    country_stats[country]['cycle_cumul_ty'] += nb
+                # Cumul l'année dernière (diff_current_box = -11, tous les jours jusqu'à max_cycle)
+                elif diff_box == -11 and day_cycle <= max_cycle:
+                    country_stats[country]['cycle_cumul_ly'] += nb
 
         # Calculer les métriques finales
         aggregated = []
@@ -356,13 +372,23 @@ def get_country_acquisitions_with_comparisons():
                 # % committed
                 pct_committed = (stats['yesterday_committed'] / stats['yesterday_total']) * 100 if stats['yesterday_total'] > 0 else 0
 
+                # Variance du cumul du cycle
+                cycle_var_pct = 0
+                if stats['cycle_cumul_ly'] > 0:
+                    cycle_var_pct = ((stats['cycle_cumul_ty'] - stats['cycle_cumul_ly']) / stats['cycle_cumul_ly']) * 100
+                elif stats['cycle_cumul_ty'] > 0:
+                    cycle_var_pct = 100
+
                 aggregated.append({
                     'country': country,
                     'nb_acquis': stats['yesterday_total'],
                     'nb_acquis_n1': stats['lastyear_total'],
                     'pct_committed': round(pct_committed, 1),
                     'top_coupon': top_coupon,
-                    'var_n1_pct': round(var_n1_pct, 1)
+                    'var_n1_pct': round(var_n1_pct, 1),
+                    'cycle_cumul_ty': stats['cycle_cumul_ty'],
+                    'cycle_cumul_ly': stats['cycle_cumul_ly'],
+                    'cycle_var_pct': round(cycle_var_pct, 1)
                 })
 
         # Trier par nb_acquis DESC
@@ -517,11 +543,18 @@ def generate_daily_summary():
 
             country_insights = []
 
-            # Variation significative (> 15% ou < -15%)
+            # Variation significative du jour (> 15% ou < -15%)
             if abs(var_n1) >= 15:
                 emoji = "📈" if var_n1 > 0 else "📉"
                 direction = "forte hausse" if var_n1 > 0 else "baisse marquée"
-                country_insights.append(f"{direction} de {abs(var_n1):.0f}% vs N-1")
+                country_insights.append(f"{direction} de {abs(var_n1):.0f}% vs N-1 hier")
+
+            # Variation significative du cycle (> 10% ou < -10%)
+            cycle_var = country.get('cycle_var_pct', 0)
+            if abs(cycle_var) >= 10:
+                emoji = "📈" if cycle_var > 0 else "📉"
+                direction = "en hausse" if cycle_var > 0 else "en baisse"
+                country_insights.append(f"cycle {direction} de {abs(cycle_var):.0f}% vs N-1")
 
             # % Committed anormal (très élevé > 70% ou très faible < 20%)
             if pct_committed >= 70:
@@ -531,7 +564,7 @@ def generate_daily_summary():
 
             # Si des insights pour ce pays, les combiner en une ligne
             if country_insights:
-                insights.append(f"• {flag} *{country_name}*: {', '.join(country_insights)} ({nb:,} acquis)")
+                insights.append(f"• {flag} *{country_name}*: {', '.join(country_insights)}")
 
         # Si aucun insight particulier
         if not insights:
@@ -542,9 +575,33 @@ def generate_daily_summary():
 
     lines.append("")
 
+    # ========== TENDANCES DU CYCLE ==========
+    if country_data:
+        lines.append("📊 *3. Tendances du cycle (depuis le début)*")
+        lines.append("")
+        lines.append("*Pays* │ *Cumul cycle* │ *Cumul N-1* │ *Var N-1*")
+        lines.append("─" * 55)
+
+        for country in country_data:
+            flag = get_country_flag(country['country'])
+            country_name = country['country'] or 'N/A'
+            cumul_ty = country['cycle_cumul_ty']
+            cumul_ly = country['cycle_cumul_ly']
+            cycle_var = country['cycle_var_pct']
+
+            # Emoji pour la variation du cycle
+            emoji_cycle = "📈" if cycle_var > 0 else "📉" if cycle_var < 0 else "➡️"
+
+            lines.append(
+                f"{flag} {country_name:4} │ {cumul_ty:11,} │ {cumul_ly:10,} │ "
+                f"{emoji_cycle}{cycle_var:+6.1f}%"
+            )
+
+        lines.append("")
+
     # ========== CRM ==========
     if crm_data:
-        lines.append("✉️ *3. CRM – Emails de la veille*")
+        lines.append("✉️ *4. CRM – Emails de la veille*")
         lines.append("")
 
         # Grouper par campagne et calculer les métriques
