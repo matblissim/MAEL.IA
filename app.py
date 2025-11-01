@@ -3,9 +3,11 @@
 
 import os
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from apscheduler.schedulers.background import BackgroundScheduler
 from config import app, bq_client, bq_client_normalized, notion_client
 from context_loader import load_context
 from slack_handlers import setup_handlers
+from morning_summary import send_morning_summary
 
 
 def main():
@@ -61,6 +63,31 @@ def main():
     print("🧠 Mémoire par thread active")
     print("🧾 Logs de coût Anthropic activés (console)")
     print(f"🔒 Tronquage tool_result si > {os.getenv('MAX_TOOL_CHARS', '2000')} chars (configurable via MAX_TOOL_CHARS)\n")
+
+    # Configuration du scheduler pour le bilan quotidien matinal
+    morning_summary_enabled = os.getenv("MORNING_SUMMARY_ENABLED", "true").lower() == "true"
+    morning_summary_hour = int(os.getenv("MORNING_SUMMARY_HOUR", "8"))  # Heure par défaut: 8h
+    morning_summary_minute = int(os.getenv("MORNING_SUMMARY_MINUTE", "30"))  # Minute par défaut: 30
+    morning_summary_channel = os.getenv("MORNING_SUMMARY_CHANNEL", "bot-lab")
+
+    if morning_summary_enabled:
+        scheduler = BackgroundScheduler()
+
+        # Programmer l'envoi quotidien
+        scheduler.add_job(
+            func=lambda: send_morning_summary(channel=morning_summary_channel),
+            trigger='cron',
+            hour=morning_summary_hour,
+            minute=morning_summary_minute,
+            id='morning_summary',
+            name='Bilan quotidien matinal',
+            replace_existing=True
+        )
+
+        scheduler.start()
+        print(f"⏰ Bilan quotidien activé: tous les jours à {morning_summary_hour:02d}:{morning_summary_minute:02d} dans #{morning_summary_channel}")
+    else:
+        print("⏰ Bilan quotidien désactivé (MORNING_SUMMARY_ENABLED=false)")
 
     # Démarrage du bot en Socket Mode
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
