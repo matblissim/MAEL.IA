@@ -275,8 +275,7 @@ def get_country_acquisitions_with_comparisons():
         AND day_in_cycle > 0
         AND diff_current_box IN (0, -11)  -- 0 = box actuelle, -11 = même box l'année dernière
     GROUP BY ALL
-    HAVING DATE_DIFF(CURRENT_DATE(), date, DAY) < 31
-        AND date <= CURRENT_DATE()
+    HAVING ABS(DATE_DIFF(CURRENT_DATE(), date, DAY)) < 31  -- Accepter dates passées ET futures (pour N-1)
     ORDER BY date DESC, country, nb_acquis DESC
     """
 
