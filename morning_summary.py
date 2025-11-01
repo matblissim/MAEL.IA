@@ -42,10 +42,10 @@ def get_acquisitions_by_coupon(date_str: str):
     query = f"""
     SELECT
         COUNT(DISTINCT user_key) as total_acquis,
-        COUNTIF(is_raffed = true OR gift = true OR cannot_suspend = true) as acquis_promo,
+        COUNTIF(raffed = true OR gift = true OR cannot_suspend = true) as acquis_promo,
         COUNTIF(yearly = true) as acquis_yearly,
-        COUNTIF(is_raffed = false AND gift = false AND cannot_suspend = false AND yearly = false) as acquis_organic,
-        ROUND(COUNTIF(is_raffed = true OR gift = true OR cannot_suspend = true) / NULLIF(COUNT(DISTINCT user_key), 0) * 100, 1) as pct_promo
+        COUNTIF(COALESCE(raffed, false) = false AND COALESCE(gift, false) = false AND COALESCE(cannot_suspend, false) = false AND COALESCE(yearly, false) = false) as acquis_organic,
+        ROUND(COUNTIF(raffed = true OR gift = true OR cannot_suspend = true) / NULLIF(COUNT(DISTINCT user_key), 0) * 100, 1) as pct_promo
     FROM `teamdata-291012.sales.box_sales`
     WHERE DATE(payment_date) = '{date_str}'
         AND acquis_status_lvl1 <> 'LIVE'

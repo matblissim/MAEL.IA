@@ -111,10 +111,10 @@ send_morning_summary(channel="test-channel")
 ```sql
 SELECT
     COUNT(DISTINCT user_key) as total_acquis,
-    COUNTIF(is_raffed = true OR gift = true OR cannot_suspend = true) as acquis_promo,
+    COUNTIF(raffed = true OR gift = true OR cannot_suspend = true) as acquis_promo,
     COUNTIF(yearly = true) as acquis_yearly,
-    COUNTIF(is_raffed = false AND gift = false AND cannot_suspend = false AND yearly = false) as acquis_organic,
-    ROUND(COUNTIF(is_raffed = true OR gift = true OR cannot_suspend = true) / NULLIF(COUNT(DISTINCT user_key), 0) * 100, 1) as pct_promo
+    COUNTIF(COALESCE(raffed, false) = false AND COALESCE(gift, false) = false AND COALESCE(cannot_suspend, false) = false AND COALESCE(yearly, false) = false) as acquis_organic,
+    ROUND(COUNTIF(raffed = true OR gift = true OR cannot_suspend = true) / NULLIF(COUNT(DISTINCT user_key), 0) * 100, 1) as pct_promo
 FROM `teamdata-291012.sales.box_sales`
 WHERE DATE(payment_date) = '{date}'
     AND acquis_status_lvl1 <> 'LIVE'
@@ -122,10 +122,11 @@ WHERE DATE(payment_date) = '{date}'
 ```
 
 **Note sur les types d'acquisition:**
-- `is_raffed = true` : Acquis via parrainage (raffed)
+- `raffed = true` : Acquis via parrainage (raffed)
 - `gift = true` : Acquis via cadeau
 - `cannot_suspend = true` : Type de promotion spéciale
 - `yearly = true` : Abonnement annuel
+- On utilise `COALESCE(colonne, false)` pour gérer les valeurs NULL
 
 ### Engagement
 
