@@ -3,7 +3,7 @@
 
 import os
 from datetime import datetime, timedelta
-from config import bq_client, app
+from config import bq_client, bq_client_normalized, app
 
 
 def get_yesterday_date():
