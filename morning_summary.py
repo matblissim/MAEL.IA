@@ -639,14 +639,14 @@ def generate_analytical_insight(country_data: dict) -> str:
 
 def generate_cycle_insight(country_data: dict) -> str:
     """
-    Génère un insight analytique pour les tendances du cycle complet.
-    Analyse la performance cumulée depuis le début du cycle.
+    Génère un insight analytique approfondi pour les tendances du cycle complet.
+    Analyse multi-dimensionnelle de la performance cumulée avec signaux business.
 
     Args:
         country_data: dict avec les métriques du pays
 
     Returns:
-        str: insight analytique sur le cycle
+        str: insight analytique riche sur le cycle
     """
     country = country_data['country']
     flag = get_country_flag(country)
@@ -654,49 +654,108 @@ def generate_cycle_insight(country_data: dict) -> str:
     cycle_cumul_ly = country_data['cycle_cumul_ly']
     cycle_var_pct = country_data['cycle_var_pct']
     var_n1_pct = country_data['var_n1_pct']  # Performance d'hier
+    nb_acquis = country_data['nb_acquis']
+    nb_acquis_n1 = country_data['nb_acquis_n1']
+    pct_committed = country_data['pct_committed']
+    pct_committed_n1 = country_data['pct_committed_n1']
 
     parts = []
 
-    # 1. Évaluation de la performance du cycle
-    if cycle_var_pct >= 15:
-        parts.append(f"cycle très dynamique ({cycle_var_pct:+.0f}% vs N-1)")
-    elif cycle_var_pct >= 8:
-        parts.append(f"bon momentum sur le cycle ({cycle_var_pct:+.0f}%)")
-    elif cycle_var_pct >= 3:
-        parts.append(f"cycle légèrement positif ({cycle_var_pct:+.0f}%)")
-    elif cycle_var_pct >= -3:
-        parts.append(f"cycle stable ({cycle_var_pct:+.0f}%)")
-    elif cycle_var_pct >= -8:
-        parts.append(f"cycle en léger retrait ({cycle_var_pct:+.0f}%)")
-    elif cycle_var_pct >= -15:
-        parts.append(f"cycle en recul ({cycle_var_pct:+.0f}%)")
-    else:
-        parts.append(f"cycle très défavorable ({cycle_var_pct:+.0f}%)")
+    # 1. Performance globale du cycle avec contexte quantitatif
+    delta_abs = cycle_cumul_ty - cycle_cumul_ly
 
-    # 2. Comparaison jour vs cycle (divergence = signal important)
+    if cycle_var_pct >= 15:
+        parts.append(f"cycle très performant : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, +{delta_abs:,} vs N-1)")
+    elif cycle_var_pct >= 8:
+        parts.append(f"cycle en croissance : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, +{delta_abs:,})")
+    elif cycle_var_pct >= 3:
+        parts.append(f"cycle légèrement positif : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%)")
+    elif cycle_var_pct >= -3:
+        parts.append(f"cycle stable : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, écart {delta_abs:+,})")
+    elif cycle_var_pct >= -8:
+        parts.append(f"cycle en retrait : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, {delta_abs:,})")
+    elif cycle_var_pct >= -15:
+        parts.append(f"cycle préoccupant : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, {delta_abs:,})")
+    else:
+        parts.append(f"cycle critique : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, {delta_abs:,} vs N-1)")
+
+    # 2. Analyse de la dynamique récente (divergence jour vs cycle)
     divergence = var_n1_pct - cycle_var_pct
 
-    if abs(divergence) >= 15:
-        if divergence > 0:
-            # Hier meilleur que le cycle = accélération
-            parts.append(f"forte accélération récente (hier {var_n1_pct:+.0f}%)")
-        else:
-            # Hier pire que le cycle = ralentissement
-            parts.append(f"ralentissement en cours (hier {var_n1_pct:+.0f}%)")
-    elif abs(divergence) >= 8:
-        if divergence > 0:
-            parts.append(f"tendance haussière récente")
-        else:
-            parts.append(f"perte de momentum récemment")
+    dynamique_parts = []
 
-    # 3. Volume absolu du cycle (contexte)
-    if cycle_cumul_ty >= 5000:
-        parts.append(f"volume élevé ({cycle_cumul_ty:,} acquis)")
-    elif cycle_cumul_ty >= 1000:
-        parts.append(f"{cycle_cumul_ty:,} acquis cumulés")
+    if abs(divergence) >= 20:
+        if divergence > 0:
+            dynamique_parts.append(f"forte accélération en cours (hier {var_n1_pct:+.0f}% vs cycle {cycle_var_pct:+.0f}%)")
+        else:
+            dynamique_parts.append(f"⚠️ décrochage récent majeur (hier {var_n1_pct:+.0f}% vs cycle {cycle_var_pct:+.0f}%)")
+    elif abs(divergence) >= 10:
+        if divergence > 0:
+            dynamique_parts.append(f"accélération récente (hier {var_n1_pct:+.0f}%)")
+        else:
+            dynamique_parts.append(f"ralentissement notable (hier {var_n1_pct:+.0f}%)")
+    elif abs(divergence) >= 5:
+        if divergence > 0:
+            dynamique_parts.append(f"légère amélioration récente")
+        else:
+            dynamique_parts.append(f"léger tassement récent")
 
-    # Construire l'insight final (max 2-3 éléments)
-    insight = f"• {flag} *{country}*: " + ", ".join(parts[:3])
+    # 3. Signaux qualitatifs et business
+    signaux = []
+
+    # Qualité committed sur le cycle
+    delta_committed = pct_committed - pct_committed_n1
+    if abs(delta_committed) >= 5:
+        if delta_committed > 0:
+            signaux.append(f"qualité en hausse (+{delta_committed:.0f} points committed)")
+        else:
+            signaux.append(f"⚠️ érosion qualité ({delta_committed:.0f} points committed)")
+
+    # Analyse de la régularité (hier vs moyenne implicite du cycle)
+    # Si hier représente une portion anormale du cycle
+    if cycle_cumul_ty > 0:
+        contrib_hier = (nb_acquis / cycle_cumul_ty) * 100
+        contrib_hier_n1 = (nb_acquis_n1 / cycle_cumul_ly) * 100 if cycle_cumul_ly > 0 else 0
+
+        # Détection si hier est un jour atypique
+        if contrib_hier >= 10:  # Plus de 10% du cycle en une journée = pic
+            signaux.append(f"journée exceptionnelle (représente {contrib_hier:.1f}% du cycle)")
+        elif cycle_cumul_ly > 0 and abs(contrib_hier - contrib_hier_n1) >= 3:
+            if contrib_hier > contrib_hier_n1:
+                signaux.append(f"contribution croissante ({contrib_hier:.1f}% vs {contrib_hier_n1:.1f}% N-1)")
+
+    # 4. Projection et recommandation (si tendance marquée)
+    recommandations = []
+
+    if cycle_var_pct <= -10 and var_n1_pct <= -10:
+        recommandations.append("→ action requise : inverser la tendance")
+    elif cycle_var_pct >= 15 and var_n1_pct >= 15:
+        recommandations.append("→ capitaliser sur le momentum")
+    elif cycle_var_pct < -5 and divergence >= 15:
+        recommandations.append("→ surveiller si rebond se confirme")
+    elif cycle_var_pct >= 10 and divergence <= -15:
+        recommandations.append("→ attention au ralentissement récent")
+
+    # Assembler l'insight complet
+    insight_parts = [parts[0]]  # Performance globale
+
+    if dynamique_parts:
+        insight_parts.extend(dynamique_parts[:1])
+
+    if signaux:
+        insight_parts.extend(signaux[:1])
+
+    if recommandations:
+        insight_parts.extend(recommandations[:1])
+
+    # Si pas assez riche, ajouter volume et contexte
+    if len(insight_parts) < 3:
+        if cycle_cumul_ty >= 10000:
+            insight_parts.append(f"volume majeur pour le marché")
+        elif cycle_cumul_ty <= 100 and cycle_cumul_ly > 0:
+            insight_parts.append(f"marché de niche")
+
+    insight = f"• {flag} *{country}*: " + ", ".join(insight_parts[:4])  # Max 4 pour plus de profondeur
 
     return insight
 
