@@ -250,79 +250,116 @@ def format_metric_line(label, current, previous, is_percentage=False):
 
 def get_country_acquisitions_with_comparisons():
     """
-    Récupère les acquisitions par pays avec comparaisons M-1 et N-1.
-    Utilise diff_current_box pour les comparaisons temporelles.
+    Récupère les acquisitions par pays des 31 derniers jours.
+    Basé sur la requête utilisateur avec diff_current_box between -1 and 0.
 
     Returns:
-        list de dict avec toutes les données par pays
+        dict avec raw_data (liste brute) et aggregated (agrégé par pays pour hier vs N-1)
     """
     if not bq_client:
-        return []
+        return {'raw_data': [], 'aggregated': []}
 
-    query = f"""
-    WITH LY AS (
-      SELECT
-        dw_country_code,
-        day_in_cycle,
-        raffed,
-        coupon,
-        cannot_suspend,
-        COUNT(*) as nbly
-      FROM `teamdata-291012.sales.box_sales`
-      WHERE diff_current_box = -11
-        AND acquis_status_lvl1 = 'ACQUISITION'
-        AND acquis_status_lvl2 <> 'Unknown'
-      GROUP BY ALL
-    ),
-    TY AS (
-      SELECT
-        dw_country_code,
-        day_in_cycle,
-        coupon,
-        raffed,
-        cannot_suspend,
-        COUNT(*) as nbty
-      FROM `teamdata-291012.sales.box_sales`
-      WHERE diff_current_box = 0
-        AND acquis_status_lvl1 = 'ACQUISITION'
-        AND acquis_status_lvl2 <> 'Unknown'
-        AND DATE(payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)  -- JUST YESTERDAY
-      GROUP BY ALL
-    ),
-    country_aggregated AS (
-      SELECT
-        dw_country_code,
-        SUM(nbly) as total_last_year,
-        SUM(nbty) as total_this_year,
-        SUM(CASE WHEN TY.raffed = 1 OR TY.cannot_suspend = 1 THEN nbty ELSE 0 END) as nb_promo_ty,
-        -- Coupon le plus fréquent
-        ARRAY_AGG(TY.coupon ORDER BY nbty DESC LIMIT 1)[OFFSET(0)] as top_coupon
-      FROM TY
-      LEFT JOIN LY USING(day_in_cycle, dw_country_code)
-      WHERE TY.day_in_cycle > 0
-      GROUP BY dw_country_code
-    )
+    query = """
     SELECT
-      dw_country_code as country,
-      total_this_year as nb_acquis,
-      total_last_year as nb_acquis_n1,
-      nb_promo_ty as nb_promo,
-      ROUND(nb_promo_ty * 100.0 / NULLIF(total_this_year, 0), 1) as pct_promo,
-      COALESCE(top_coupon, 'N/A') as top_coupon,
-      ROUND((total_this_year - total_last_year) * 100.0 / NULLIF(total_last_year, 0), 1) as var_n1_pct,
-      0 as var_m1_pct  -- Pas de M-1 dans cette logique, on garde N-1
-    FROM country_aggregated
-    WHERE total_this_year > 0
-    ORDER BY total_this_year DESC
+        DATE(payment_date) as date,
+        dw_country_code as country,
+        acquis_status_lvl2,
+        diff_current_box,
+        coupon,
+        cannot_suspend,
+        COUNT(*) as nb_acquis
+    FROM `teamdata-291012.sales.box_sales`
+    WHERE acquis_status_lvl1 = 'ACQUISITION'
+        AND day_in_cycle > 0
+        AND diff_current_box BETWEEN -1 AND 0
+    GROUP BY ALL
+    HAVING DATE_DIFF(CURRENT_DATE(), date, DAY) < 31
+        AND date <= CURRENT_DATE()
+    ORDER BY date DESC, country, nb_acquis DESC
     """
 
     try:
         job = bq_client.query(query)
-        rows = list(job.result(timeout=60))
-        return [dict(row) for row in rows] if rows else []
+        raw_data = [dict(row) for row in job.result(timeout=60)]
+
+        # Agréger pour hier (date = CURRENT_DATE - 1)
+        from datetime import datetime, timedelta
+        yesterday = (datetime.now() - timedelta(days=1)).date()
+
+        # Grouper par pays pour hier
+        country_stats = {}
+        for row in raw_data:
+            country = row['country']
+            date = row['date']
+            diff_box = row['diff_current_box']
+            nb = row['nb_acquis']
+            cannot_suspend = row['cannot_suspend']
+            coupon = row['coupon']
+
+            if country not in country_stats:
+                country_stats[country] = {
+                    'country': country,
+                    'yesterday_total': 0,
+                    'yesterday_committed': 0,
+                    'yesterday_coupons': {},
+                    'lastyear_total': 0
+                }
+
+            # Hier (diff_current_box = 0)
+            if date == yesterday and diff_box == 0:
+                country_stats[country]['yesterday_total'] += nb
+                if cannot_suspend == 1:
+                    country_stats[country]['yesterday_committed'] += nb
+                if coupon:
+                    if coupon not in country_stats[country]['yesterday_coupons']:
+                        country_stats[country]['yesterday_coupons'][coupon] = 0
+                    country_stats[country]['yesterday_coupons'][coupon] += nb
+
+            # Même date l'année dernière (diff_current_box = -1)
+            if date == yesterday and diff_box == -1:
+                country_stats[country]['lastyear_total'] += nb
+
+        # Calculer les métriques finales
+        aggregated = []
+        for country, stats in country_stats.items():
+            if stats['yesterday_total'] > 0:
+                # Top coupon
+                top_coupon = 'N/A'
+                if stats['yesterday_coupons']:
+                    top_coupon = max(stats['yesterday_coupons'].items(), key=lambda x: x[1])[0]
+
+                # Variance N-1
+                var_n1_pct = 0
+                if stats['lastyear_total'] > 0:
+                    var_n1_pct = ((stats['yesterday_total'] - stats['lastyear_total']) / stats['lastyear_total']) * 100
+                elif stats['yesterday_total'] > 0:
+                    var_n1_pct = 100
+
+                # % committed
+                pct_committed = (stats['yesterday_committed'] / stats['yesterday_total']) * 100 if stats['yesterday_total'] > 0 else 0
+
+                aggregated.append({
+                    'country': country,
+                    'nb_acquis': stats['yesterday_total'],
+                    'nb_acquis_n1': stats['lastyear_total'],
+                    'pct_committed': round(pct_committed, 1),
+                    'top_coupon': top_coupon,
+                    'var_n1_pct': round(var_n1_pct, 1)
+                })
+
+        # Trier par nb_acquis DESC
+        aggregated.sort(key=lambda x: x['nb_acquis'], reverse=True)
+
+        return {
+            'raw_data': raw_data,
+            'aggregated': aggregated
+        }
+
     except Exception as e:
         print(f"❌ Erreur get_country_acquisitions_with_comparisons: {e}")
-        return []
+        import traceback
+        traceback.print_exc()
+        return {'raw_data': [], 'aggregated': []}
 
 
 def get_country_flag(country_code: str) -> str:
@@ -394,13 +431,15 @@ def generate_daily_summary():
     last_year_acq = get_acquisitions_by_coupon(last_year)
     last_month_eng = get_engagement_metrics(last_month)
 
-    # Récupérer les données par pays avec comparaisons
-    country_data = get_country_acquisitions_with_comparisons()
+    # Récupérer les données par pays avec comparaisons (nouvelle structure)
+    country_result = get_country_acquisitions_with_comparisons()
+    country_data = country_result['aggregated']
+    raw_data = country_result['raw_data']
 
     # Récupérer les données CRM
     crm_data = get_crm_yesterday()
 
-    if not current_acq or not current_eng:
+    if not country_data:
         return "⚠️ Impossible de générer le bilan quotidien : données manquantes"
 
     # Construire le message
@@ -409,13 +448,13 @@ def generate_daily_summary():
     lines.append("")
 
     # ========== TABLEAU PAR PAYS ==========
-    lines.append("🌍 *1. Acquisitions par pays*")
+    lines.append("🌍 *1. Acquisitions par pays (hier)*")
     lines.append("")
 
     if country_data:
         # En-tête du tableau
-        lines.append("*Pays* │ *Acquis* │ *Var N-1* │ *% Promo* │ *Coupon top*")
-        lines.append("─" * 65)
+        lines.append("*Pays* │ *Acquis* │ *Var N-1* │ *% Committed* │ *Coupon top*")
+        lines.append("─" * 70)
 
         total_acquis = sum(c['nb_acquis'] for c in country_data)
 
@@ -424,23 +463,28 @@ def generate_daily_summary():
             country_name = country['country'] or 'N/A'
             nb = int(country['nb_acquis'])
             var_n1 = country['var_n1_pct'] or 0
-            pct_promo = country['pct_promo'] or 0
+            pct_committed = country['pct_committed'] or 0
             top_coupon = (country['top_coupon'] or 'N/A')[:15]  # Limiter à 15 chars
 
             # Emoji pour la variation
             emoji_n1 = "📈" if var_n1 > 0 else "📉" if var_n1 < 0 else "➡️"
 
             lines.append(
-                f"{flag} {country_name:4} │ {nb:5,} │ "
+                f"{flag} {country_name:4} │ {nb:6,} │ "
                 f"{emoji_n1}{var_n1:+6.1f}% │ "
-                f"{pct_promo:5.1f}% │ "
+                f"{pct_committed:7.1f}% │ "
                 f"{top_coupon}"
             )
 
         lines.append("")
+        lines.append(f"*Total: {total_acquis:,} acquisitions*")
+        lines.append("")
 
     # ========== INSIGHTS ==========
-    lines.append("🧠 *Insights :*")
+    lines.append("🧠 *2. Insights clés*")
+    lines.append("")
+
+    insights = []
 
     # Insights par pays avec variations significatives
     if country_data:
@@ -451,40 +495,32 @@ def generate_daily_summary():
             country_name = country['country']
             var_n1 = country['var_n1_pct'] or 0
             nb = country['nb_acquis']
-
-            # Ne montrer que les insights intéressants
-            insights = []
+            pct_committed = country['pct_committed'] or 0
 
             # Variation significative (> 15% ou < -15%)
             if abs(var_n1) >= 15:
                 emoji = "📈" if var_n1 > 0 else "📉"
                 direction = "forte hausse" if var_n1 > 0 else "baisse marquée"
-                insights.append(f"{flag} {country_name}: {direction} de {abs(var_n1):.0f}% vs N-1 ({nb:,} acquis)")
+                insights.append(f"• {flag} *{country_name}*: {direction} de {abs(var_n1):.0f}% vs N-1 ({nb:,} acquis)")
 
-            # Afficher les insights intéressants seulement
-            for insight in insights:
-                lines.append(f"• {insight}")
+            # % Committed anormal (très élevé > 70% ou très faible < 20%)
+            if pct_committed >= 70:
+                insights.append(f"• {flag} *{country_name}*: Taux de committed élevé ({pct_committed:.1f}%)")
+            elif pct_committed <= 20 and nb >= 10:
+                insights.append(f"• {flag} *{country_name}*: Taux de committed faible ({pct_committed:.1f}%)")
 
-        # Si aucun insight particulier, au moins le total global
-        if not any(abs(c.get('var_n1_pct', 0)) >= 15 for c in country_data):
-            lines.append(f"• Volumes stables sur tous les pays ({total_global:,} acquis total)")
+        # Si aucun insight particulier
+        if not insights:
+            insights.append(f"• Volumes stables sur tous les pays ({total_global:,} acquis total)")
 
-    # Part promo vs organic (seulement si significatif)
-    if current_acq['pct_promo'] >= 70 or current_acq['pct_promo'] <= 30:
-        lines.append(f"• Part promo/coupon {'élevée' if current_acq['pct_promo'] >= 70 else 'faible'}: {current_acq['pct_promo']:.1f}%")
-
-    # Engagement seulement si variation significative
-    if last_month_eng and current_eng.get('pct_committed') is not None:
-        var_eng, _ = calculate_variance(current_eng['pct_committed'], last_month_eng['pct_committed'])
-        if abs(var_eng) >= 2:  # Seulement si +/- 2pp
-            emoji_eng = "📈" if var_eng > 0 else "📉"
-            lines.append(f"• {emoji_eng} Engagement: {current_eng['pct_committed']:.1f}% ({var_eng:+.1f}pp vs M-1)")
+    for insight in insights:
+        lines.append(insight)
 
     lines.append("")
 
     # ========== CRM ==========
     if crm_data:
-        lines.append("✉️ *2. CRM – Emails de la veille*")
+        lines.append("✉️ *3. CRM – Emails de la veille*")
         lines.append("")
 
         # Grouper par campagne et calculer les métriques
