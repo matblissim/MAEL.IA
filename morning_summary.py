@@ -242,9 +242,114 @@ def format_metric_line(label, current, previous, is_percentage=False):
     return f"{emoji} *{label}*: {current_str} (vs {previous_str}: {symbol}{variance_abs:+.0f} / {symbol}{variance_pct:+.1f}%)"
 
 
+def get_country_acquisitions_with_comparisons(date_str: str, date_m1: str, date_n1: str):
+    """
+    Récupère les acquisitions par pays avec comparaisons M-1 et N-1.
+
+    Args:
+        date_str: Date actuelle
+        date_m1: Date M-1 (mois dernier)
+        date_n1: Date N-1 (année dernière)
+
+    Returns:
+        list de dict avec toutes les données par pays
+    """
+    if not bq_client:
+        return []
+
+    query = f"""
+    WITH current_data AS (
+      SELECT
+        dw_country_code as country,
+        COUNT(DISTINCT user_key) as nb_acquis,
+        COUNTIF(raffed = 1 OR gift = 1 OR cannot_suspend = 1) as nb_promo,
+        ROUND(COUNTIF(raffed = 1 OR gift = 1 OR cannot_suspend = 1) * 100.0 / NULLIF(COUNT(DISTINCT user_key), 0), 1) as pct_promo
+      FROM `teamdata-291012.sales.box_sales`
+      WHERE DATE(payment_date) = '{date_str}'
+        AND acquis_status_lvl1 <> 'LIVE'
+        AND payment_status = 'paid'
+      GROUP BY dw_country_code
+    ),
+    m1_data AS (
+      SELECT
+        dw_country_code as country,
+        COUNT(DISTINCT user_key) as nb_acquis_m1
+      FROM `teamdata-291012.sales.box_sales`
+      WHERE DATE(payment_date) = '{date_m1}'
+        AND acquis_status_lvl1 <> 'LIVE'
+        AND payment_status = 'paid'
+      GROUP BY dw_country_code
+    ),
+    n1_data AS (
+      SELECT
+        dw_country_code as country,
+        COUNT(DISTINCT user_key) as nb_acquis_n1
+      FROM `teamdata-291012.sales.box_sales`
+      WHERE DATE(payment_date) = '{date_n1}'
+        AND acquis_status_lvl1 <> 'LIVE'
+        AND payment_status = 'paid'
+      GROUP BY dw_country_code
+    ),
+    top_coupon_per_country AS (
+      SELECT
+        dw_country_code as country,
+        c.name as top_coupon,
+        ROW_NUMBER() OVER (PARTITION BY dw_country_code ORDER BY COUNT(DISTINCT user_key) DESC) as rn
+      FROM `teamdata-291012.sales.box_sales` bs
+      LEFT JOIN `teamdata-291012.inter.coupons` c ON bs.coupon = c.code
+      WHERE DATE(bs.payment_date) = '{date_str}'
+        AND bs.acquis_status_lvl1 <> 'LIVE'
+        AND bs.payment_status = 'paid'
+        AND bs.coupon IS NOT NULL
+      GROUP BY dw_country_code, c.name
+    )
+    SELECT
+      cd.country,
+      cd.nb_acquis,
+      cd.nb_promo,
+      cd.pct_promo,
+      COALESCE(m1.nb_acquis_m1, 0) as nb_acquis_m1,
+      COALESCE(n1.nb_acquis_n1, 0) as nb_acquis_n1,
+      COALESCE(tc.top_coupon, 'N/A') as top_coupon,
+      ROUND((cd.nb_acquis - COALESCE(m1.nb_acquis_m1, 0)) * 100.0 / NULLIF(m1.nb_acquis_m1, 0), 1) as var_m1_pct,
+      ROUND((cd.nb_acquis - COALESCE(n1.nb_acquis_n1, 0)) * 100.0 / NULLIF(n1.nb_acquis_n1, 0), 1) as var_n1_pct
+    FROM current_data cd
+    LEFT JOIN m1_data m1 ON cd.country = m1.country
+    LEFT JOIN n1_data n1 ON cd.country = n1.country
+    LEFT JOIN top_coupon_per_country tc ON cd.country = tc.country AND tc.rn = 1
+    ORDER BY cd.nb_acquis DESC
+    """
+
+    try:
+        job = bq_client.query(query)
+        rows = list(job.result(timeout=30))
+        return [dict(row) for row in rows] if rows else []
+    except Exception as e:
+        print(f"❌ Erreur get_country_acquisitions_with_comparisons: {e}")
+        return []
+
+
+def get_country_flag(country_code: str) -> str:
+    """Retourne l'emoji drapeau pour un code pays."""
+    flags = {
+        'FR': '🇫🇷',
+        'DE': '🇩🇪',
+        'ES': '🇪🇸',
+        'IT': '🇮🇹',
+        'BE': '🇧🇪',
+        'NL': '🇳🇱',
+        'PT': '🇵🇹',
+        'AT': '🇦🇹',
+        'CH': '🇨🇭',
+        'GB': '🇬🇧',
+        'UK': '🇬🇧',
+    }
+    return flags.get(country_code, '🌍')
+
+
 def generate_daily_summary():
     """
-    Génère le bilan quotidien complet.
+    Génère le bilan quotidien complet au format tableau.
 
     Returns:
         str: Message formaté pour Slack
@@ -254,90 +359,87 @@ def generate_daily_summary():
     last_year = get_same_day_last_year()
 
     print(f"[Morning Summary] Génération du bilan pour {yesterday}")
-    print(f"[Morning Summary] Comparaison avec: {last_month} (mois dernier) et {last_year} (année dernière)")
+    print(f"[Morning Summary] Comparaison avec: {last_month} (M-1) et {last_year} (N-1)")
 
-    # Récupérer les données
+    # Récupérer les données globales
     current_acq = get_acquisitions_by_coupon(yesterday)
+    current_eng = get_engagement_metrics(yesterday)
     last_month_acq = get_acquisitions_by_coupon(last_month)
     last_year_acq = get_acquisitions_by_coupon(last_year)
-
-    current_eng = get_engagement_metrics(yesterday)
     last_month_eng = get_engagement_metrics(last_month)
-    last_year_eng = get_engagement_metrics(last_year)
 
-    # Détails additionnels
-    country_breakdown = get_country_breakdown(yesterday)
-    coupon_details = get_coupon_details(yesterday)
+    # Récupérer les données par pays avec comparaisons
+    country_data = get_country_acquisitions_with_comparisons(yesterday, last_month, last_year)
 
     if not current_acq or not current_eng:
         return "⚠️ Impossible de générer le bilan quotidien : données manquantes"
 
     # Construire le message
     lines = []
-    lines.append("=" * 50)
-    lines.append(f"☀️ *BILAN QUOTIDIEN - {yesterday}*")
-    lines.append("=" * 50)
+    lines.append("📊 *Rapport Blissim – Acquisitions du {}*".format(yesterday))
     lines.append("")
 
-    # ========== RÉSUMÉ GLOBAL ==========
-    lines.append("📊 *RÉSUMÉ*")
-    lines.append(f"• Total acquis : *{current_acq['total_acquis']:,}*")
-    lines.append(f"• Dont promo/coupon : {current_acq['acquis_promo']:,} ({current_acq['pct_promo']:.1f}%)")
-    lines.append(f"• Dont organic : {current_acq['acquis_organic']:,}")
-    lines.append(f"• Engagement (% committed) : *{current_eng['pct_committed']:.1f}%*")
+    # ========== TABLEAU PAR PAYS ==========
+    lines.append("🌍 *1. Acquisitions par pays*")
     lines.append("")
 
-    # ========== PAR PAYS ==========
-    if country_breakdown:
-        lines.append("🌍 *PAR PAYS*")
-        for country in country_breakdown:
-            country_code = country['country'] or 'N/A'
+    if country_data:
+        # En-tête du tableau
+        lines.append("*Pays* │ *Acquis* │ *Var M-1* │ *Var N-1* │ *% Promo* │ *Coupon top*")
+        lines.append("─" * 70)
+
+        total_acquis = sum(c['nb_acquis'] for c in country_data)
+
+        for country in country_data:
+            flag = get_country_flag(country['country'])
+            country_name = country['country'] or 'N/A'
             nb = int(country['nb_acquis'])
-            pct = country['pct']
-            lines.append(f"• {country_code} : {nb:,} ({pct:.1f}%)")
+            var_m1 = country['var_m1_pct'] or 0
+            var_n1 = country['var_n1_pct'] or 0
+            pct_promo = country['pct_promo'] or 0
+            top_coupon = (country['top_coupon'] or 'N/A')[:15]  # Limiter à 15 chars
+
+            # Emoji pour les variations
+            emoji_m1 = "📈" if var_m1 > 0 else "📉" if var_m1 < 0 else "➡️"
+            emoji_n1 = "📈" if var_n1 > 0 else "📉" if var_n1 < 0 else "➡️"
+
+            lines.append(
+                f"{flag} {country_name:4} │ {nb:5,} │ "
+                f"{emoji_m1}{var_m1:+5.1f}% │ "
+                f"{emoji_n1}{var_n1:+5.1f}% │ "
+                f"{pct_promo:5.1f}% │ "
+                f"{top_coupon}"
+            )
+
         lines.append("")
 
-    # ========== TOP COUPONS ==========
-    if coupon_details:
-        lines.append("🎟️ *TOP COUPONS UTILISÉS*")
-        for i, coupon in enumerate(coupon_details[:5], 1):
-            name = coupon['coupon_name'] or 'Sans nom'
-            nb = int(coupon['nb_acquis'])
-            pct = coupon['pct']
-            lines.append(f"{i}. {name} : {nb:,} ({pct:.1f}%)")
-        lines.append("")
+    # ========== INSIGHTS ==========
+    lines.append("🧠 *Insights :*")
 
-    # ========== COMPARAISONS ==========
-    lines.append("📈 *ÉVOLUTION*")
-    lines.append("")
-
-    # vs Mois dernier
+    # Calcul variation globale
     if last_month_acq:
-        lines.append(f"*vs {last_month} (mois dernier)*")
-        var_acq, var_acq_pct = calculate_variance(current_acq['total_acquis'], last_month_acq['total_acquis'])
-        emoji_acq = "📈" if var_acq > 0 else "📉" if var_acq < 0 else "➡️"
-        lines.append(f"{emoji_acq} Acquis : {var_acq:+,} ({var_acq_pct:+.1f}%)")
+        var_m1, var_m1_pct = calculate_variance(current_acq['total_acquis'], last_month_acq['total_acquis'])
+        emoji = "📈" if var_m1 > 0 else "📉" if var_m1 < 0 else "➡️"
+        lines.append(f"• {emoji} Globalement *{var_m1_pct:+.1f}%* vs M-1 ({current_acq['total_acquis']:,} acquis)")
 
-        if last_month_eng:
-            var_eng, var_eng_pct = calculate_variance(current_eng['pct_committed'], last_month_eng['pct_committed'])
-            emoji_eng = "📈" if var_eng > 0 else "📉" if var_eng < 0 else "➡️"
-            lines.append(f"{emoji_eng} Engagement : {var_eng:+.1f}pp")
-        lines.append("")
+    # Part promo vs organic
+    lines.append(f"• {current_acq['pct_promo']:.1f}% d'acquis via promo/coupon, {100 - current_acq['pct_promo']:.1f}% organic")
 
-    # vs Année dernière
-    if last_year_acq:
-        lines.append(f"*vs {last_year} (année dernière)*")
-        var_acq, var_acq_pct = calculate_variance(current_acq['total_acquis'], last_year_acq['total_acquis'])
-        emoji_acq = "📈" if var_acq > 0 else "📉" if var_acq < 0 else "➡️"
-        lines.append(f"{emoji_acq} Acquis : {var_acq:+,} ({var_acq_pct:+.1f}%)")
+    # Engagement
+    if last_month_eng:
+        var_eng, _ = calculate_variance(current_eng['pct_committed'], last_month_eng['pct_committed'])
+        emoji_eng = "📈" if var_eng > 0 else "📉" if var_eng < 0 else "➡️"
+        lines.append(f"• {emoji_eng} Engagement (% committed) : {current_eng['pct_committed']:.1f}% ({var_eng:+.1f}pp vs M-1)")
 
-        if last_year_eng:
-            var_eng, var_eng_pct = calculate_variance(current_eng['pct_committed'], last_year_eng['pct_committed'])
-            emoji_eng = "📈" if var_eng > 0 else "📉" if var_eng < 0 else "➡️"
-            lines.append(f"{emoji_eng} Engagement : {var_eng:+.1f}pp")
-        lines.append("")
+    # Top pays
+    if country_data:
+        top_country = country_data[0]
+        flag = get_country_flag(top_country['country'])
+        pct_total = (top_country['nb_acquis'] / sum(c['nb_acquis'] for c in country_data) * 100)
+        lines.append(f"• {flag} {top_country['country']} reste le moteur principal ({pct_total:.1f}% des volumes)")
 
-    lines.append("=" * 50)
+    lines.append("")
+    lines.append("─" * 70)
     lines.append("_Généré par Franck 🤖_")
 
     return "\n".join(lines)
