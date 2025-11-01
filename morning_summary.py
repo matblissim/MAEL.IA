@@ -298,16 +298,15 @@ def get_country_acquisitions_with_comparisons(date_str: str, date_m1: str, date_
     ),
     top_coupon_per_country AS (
       SELECT
-        bs.dw_country_code as country,
-        c.name as top_coupon,
-        ROW_NUMBER() OVER (PARTITION BY bs.dw_country_code ORDER BY COUNT(DISTINCT bs.user_key) DESC) as rn
-      FROM `teamdata-291012.sales.box_sales` bs
-      LEFT JOIN `teamdata-291012.inter.coupons` c ON bs.coupon = c.code
-      WHERE DATE(bs.payment_date) = '{date_str}'
-        AND bs.acquis_status_lvl1 <> 'LIVE'
-        AND bs.payment_status = 'paid'
-        AND bs.coupon IS NOT NULL
-      GROUP BY bs.dw_country_code, c.name
+        dw_country_code as country,
+        coupon as top_coupon,
+        ROW_NUMBER() OVER (PARTITION BY dw_country_code ORDER BY COUNT(DISTINCT user_key) DESC) as rn
+      FROM `teamdata-291012.sales.box_sales`
+      WHERE DATE(payment_date) = '{date_str}'
+        AND acquis_status_lvl1 <> 'LIVE'
+        AND payment_status = 'paid'
+        AND coupon IS NOT NULL
+      GROUP BY dw_country_code, coupon
     )
     SELECT
       cd.country,
@@ -432,10 +431,12 @@ def generate_daily_summary():
     lines.append(f"• {current_acq['pct_promo']:.1f}% d'acquis via promo/coupon, {100 - current_acq['pct_promo']:.1f}% organic")
 
     # Engagement
-    if last_month_eng:
+    if last_month_eng and current_eng.get('pct_committed') is not None:
         var_eng, _ = calculate_variance(current_eng['pct_committed'], last_month_eng['pct_committed'])
         emoji_eng = "📈" if var_eng > 0 else "📉" if var_eng < 0 else "➡️"
         lines.append(f"• {emoji_eng} Engagement (% committed) : {current_eng['pct_committed']:.1f}% ({var_eng:+.1f}pp vs M-1)")
+    elif current_eng.get('pct_committed') is not None:
+        lines.append(f"• Engagement (% committed) : {current_eng['pct_committed']:.1f}%")
 
     # Top pays
     if country_data:
