@@ -260,22 +260,44 @@ def get_country_acquisitions_with_comparisons():
         return {'raw_data': [], 'aggregated': []}
 
     query = """
+    WITH yesterday_cycles AS (
+      -- Identifier les (country, month, max_day_in_cycle) d'HIER (CURRENT_DATE - 1)
+      SELECT
+        dw_country_code,
+        month,
+        MAX(day_in_cycle) as max_day_in_cycle
+      FROM `teamdata-291012.sales.box_sales`
+      WHERE acquis_status_lvl1 = 'ACQUISITION'
+        AND day_in_cycle > 0
+        AND diff_current_box = 0
+        AND DATE(payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+      GROUP BY dw_country_code, month
+    )
     SELECT
         DATE(payment_date) as date,
-        dw_country_code as country,
+        bs.dw_country_code as country,
         acquis_status_lvl2,
         diff_current_box,
-        day_in_cycle,
-        month,  -- Colonne month de box_sales (mois de la box, pas date)
+        bs.day_in_cycle,
+        bs.month,
         coupon,
         cannot_suspend,
         COUNT(*) as nb_acquis
-    FROM `teamdata-291012.sales.box_sales`
+    FROM `teamdata-291012.sales.box_sales` bs
+    INNER JOIN yesterday_cycles yc
+      ON bs.dw_country_code = yc.dw_country_code
+      AND bs.month = yc.month
     WHERE acquis_status_lvl1 = 'ACQUISITION'
-        AND day_in_cycle > 0
-        AND diff_current_box IN (0, -11)  -- 0 = box actuelle, -11 = même box l'année dernière
+        AND bs.day_in_cycle > 0
+        AND diff_current_box IN (0, -11)
+        AND (
+          -- HIER : diff_current_box = 0, date = CURRENT_DATE - 1
+          (diff_current_box = 0 AND DATE(payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY))
+          OR
+          -- CUMUL CYCLE : tous les jours jusqu'à max_day_in_cycle (pour les 2 boxes)
+          (bs.day_in_cycle <= yc.max_day_in_cycle)
+        )
     GROUP BY ALL
-    -- Pas de filtre HAVING sur les dates : diff_current_box suffit pour filtrer
     ORDER BY date DESC, country, nb_acquis DESC
     """
 
@@ -283,34 +305,26 @@ def get_country_acquisitions_with_comparisons():
         job = bq_client.query(query)
         raw_data = [dict(row) for row in job.result(timeout=60)]
 
-        # Trouver la date la plus récente dans diff_current_box = 0 (box actuelle)
-        latest_date = None
-        for row in raw_data:
-            if row['diff_current_box'] == 0:
-                if latest_date is None or row['date'] > latest_date:
-                    latest_date = row['date']
+        # La requête SQL filtre déjà sur CURRENT_DATE - 1
+        # Plus besoin de chercher latest_date dynamiquement
+        from datetime import datetime, timedelta
+        yesterday = (datetime.now() - timedelta(days=1)).date()
 
-        print(f"[DEBUG] Date la plus récente (diff_current_box=0): {latest_date}")
-
-        if not latest_date:
-            print("[ERROR] Aucune donnée trouvée pour diff_current_box=0")
-            return {'raw_data': raw_data, 'aggregated': [], 'latest_date': None}
-
-        # PREMIÈRE PASSE : identifier les (month, day_in_cycle) de la date la plus récente par pays
+        # PREMIÈRE PASSE : identifier les (month, day_in_cycle) d'hier par pays
         yesterday_cycles = {}  # {country: set((month, day_in_cycle))}
         max_day_cycles = {}  # {country: max_day_in_cycle}
         for row in raw_data:
-            if row['date'] == latest_date and row['diff_current_box'] == 0:
+            if row['diff_current_box'] == 0:  # Toutes les rows diff=0 sont déjà d'hier grâce à la requête
                 country = row['country']
                 day_cycle = row['day_in_cycle']
-                month = row['month']  # Utiliser la colonne month de box_sales
+                month = row['month']  # Colonne month de box_sales
                 if country not in yesterday_cycles:
                     yesterday_cycles[country] = set()
                     max_day_cycles[country] = 0
                 yesterday_cycles[country].add((month, day_cycle))
                 max_day_cycles[country] = max(max_day_cycles[country], day_cycle)
 
-        print(f"[DEBUG] (month, day_in_cycle) du {latest_date} par pays: {yesterday_cycles}")
+        print(f"[DEBUG] (month, day_in_cycle) d'hier par pays: {yesterday_cycles}")
         print(f"[DEBUG] Max day_in_cycle par pays: {max_day_cycles}")
 
         # DEUXIÈME PASSE : grouper par pays en comparant les mêmes day_in_cycle
@@ -335,8 +349,9 @@ def get_country_acquisitions_with_comparisons():
                     'cycle_cumul_ly': 0   # Cumul du cycle l'année dernière
                 }
 
-            # Date la plus récente (diff_current_box = 0, date = latest_date)
-            if date == latest_date and diff_box == 0:
+            # Hier (diff_current_box = 0, date = CURRENT_DATE - 1)
+            # La requête SQL filtre déjà sur CURRENT_DATE - 1
+            if date == yesterday and diff_box == 0:
                 country_stats[country]['yesterday_total'] += nb
                 if cannot_suspend == 1:
                     country_stats[country]['yesterday_committed'] += nb
