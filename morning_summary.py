@@ -304,7 +304,7 @@ def get_country_acquisitions_with_comparisons():
       FROM TY
       LEFT JOIN LY USING(day_in_cycle, acquis_status_lvl2, dw_country_code)
       WHERE day_in_cycle > 0
-        AND DATE_DIFF(CURRENT_DATE(), TY.date, DAY) BETWEEN 1 AND 10
+        AND DATE_DIFF(CURRENT_DATE(), TY.date, DAY) = 1  -- JUSTE HIER, pas 1-10 jours
       GROUP BY dw_country_code, TY.date
     )
     SELECT
@@ -447,29 +447,43 @@ def generate_daily_summary():
     # ========== INSIGHTS ==========
     lines.append("🧠 *Insights :*")
 
-    # Calcul variation globale
-    if last_month_acq:
-        var_m1, var_m1_pct = calculate_variance(current_acq['total_acquis'], last_month_acq['total_acquis'])
-        emoji = "📈" if var_m1 > 0 else "📉" if var_m1 < 0 else "➡️"
-        lines.append(f"• {emoji} Globalement *{var_m1_pct:+.1f}%* vs M-1 ({current_acq['total_acquis']:,} acquis)")
+    # Insights par pays avec variations significatives
+    if country_data:
+        total_global = sum(c['nb_acquis'] for c in country_data)
 
-    # Part promo vs organic
-    lines.append(f"• {current_acq['pct_promo']:.1f}% d'acquis via promo/coupon, {100 - current_acq['pct_promo']:.1f}% organic")
+        for country in country_data:
+            flag = get_country_flag(country['country'])
+            country_name = country['country']
+            var_n1 = country['var_n1_pct'] or 0
+            nb = country['nb_acquis']
 
-    # Engagement
+            # Ne montrer que les insights intéressants
+            insights = []
+
+            # Variation significative (> 15% ou < -15%)
+            if abs(var_n1) >= 15:
+                emoji = "📈" if var_n1 > 0 else "📉"
+                direction = "forte hausse" if var_n1 > 0 else "baisse marquée"
+                insights.append(f"{flag} {country_name}: {direction} de {abs(var_n1):.0f}% vs N-1 ({nb:,} acquis)")
+
+            # Afficher les insights intéressants seulement
+            for insight in insights:
+                lines.append(f"• {insight}")
+
+        # Si aucun insight particulier, au moins le total global
+        if not any(abs(c.get('var_n1_pct', 0)) >= 15 for c in country_data):
+            lines.append(f"• Volumes stables sur tous les pays ({total_global:,} acquis total)")
+
+    # Part promo vs organic (seulement si significatif)
+    if current_acq['pct_promo'] >= 70 or current_acq['pct_promo'] <= 30:
+        lines.append(f"• Part promo/coupon {'élevée' if current_acq['pct_promo'] >= 70 else 'faible'}: {current_acq['pct_promo']:.1f}%")
+
+    # Engagement seulement si variation significative
     if last_month_eng and current_eng.get('pct_committed') is not None:
         var_eng, _ = calculate_variance(current_eng['pct_committed'], last_month_eng['pct_committed'])
-        emoji_eng = "📈" if var_eng > 0 else "📉" if var_eng < 0 else "➡️"
-        lines.append(f"• {emoji_eng} Engagement (% committed) : {current_eng['pct_committed']:.1f}% ({var_eng:+.1f}pp vs M-1)")
-    elif current_eng.get('pct_committed') is not None:
-        lines.append(f"• Engagement (% committed) : {current_eng['pct_committed']:.1f}%")
-
-    # Top pays
-    if country_data:
-        top_country = country_data[0]
-        flag = get_country_flag(top_country['country'])
-        pct_total = (top_country['nb_acquis'] / sum(c['nb_acquis'] for c in country_data) * 100)
-        lines.append(f"• {flag} {top_country['country']} reste le moteur principal ({pct_total:.1f}% des volumes)")
+        if abs(var_eng) >= 2:  # Seulement si +/- 2pp
+            emoji_eng = "📈" if var_eng > 0 else "📉"
+            lines.append(f"• {emoji_eng} Engagement: {current_eng['pct_committed']:.1f}% ({var_eng:+.1f}pp vs M-1)")
 
     lines.append("")
 
