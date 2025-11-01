@@ -116,9 +116,9 @@ SELECT
     COUNTIF(is_raffed = false AND gift = false AND cannot_suspend = false AND yearly = false) as acquis_organic,
     ROUND(COUNTIF(is_raffed = true OR gift = true OR cannot_suspend = true) / NULLIF(COUNT(DISTINCT user_key), 0) * 100, 1) as pct_promo
 FROM `teamdata-291012.sales.box_sales`
-WHERE payment_date = '{date}'
+WHERE DATE(payment_date) = '{date}'
     AND acquis_status_lvl1 <> 'LIVE'
-    AND is_current = true
+    AND payment_status = 'paid'
 ```
 
 **Note sur les types d'acquisition:**
@@ -135,8 +135,7 @@ SELECT
     COUNT(DISTINCT CASE WHEN payment_status = 'paid' THEN user_key END) as paid_subscribers,
     ROUND(AVG(day_in_cycle), 1) as avg_day_in_cycle
 FROM `teamdata-291012.sales.box_sales`
-WHERE date = '{date}'
-    AND is_current = true
+WHERE DATE(date) = '{date}'
 ```
 
 ## 📝 Exemple de bilan

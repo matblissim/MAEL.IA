@@ -47,9 +47,9 @@ def get_acquisitions_by_coupon(date_str: str):
         COUNTIF(is_raffed = false AND gift = false AND cannot_suspend = false AND yearly = false) as acquis_organic,
         ROUND(COUNTIF(is_raffed = true OR gift = true OR cannot_suspend = true) / NULLIF(COUNT(DISTINCT user_key), 0) * 100, 1) as pct_promo
     FROM `teamdata-291012.sales.box_sales`
-    WHERE payment_date = '{date_str}'
+    WHERE DATE(payment_date) = '{date_str}'
         AND acquis_status_lvl1 <> 'LIVE'
-        AND is_current = true
+        AND payment_status = 'paid'
     """
 
     try:
@@ -90,8 +90,7 @@ def get_engagement_metrics(date_str: str):
         COUNT(DISTINCT CASE WHEN payment_status = 'paid' THEN user_key END) as paid_subscribers,
         ROUND(AVG(day_in_cycle), 1) as avg_day_in_cycle
     FROM `teamdata-291012.sales.box_sales`
-    WHERE date = '{date_str}'
-        AND is_current = true
+    WHERE DATE(date) = '{date_str}'
     """
 
     try:
@@ -293,16 +292,34 @@ def send_morning_summary(channel: str = "bot-lab"):
         # Générer le bilan
         summary = generate_daily_summary()
 
-        # Envoyer au channel
+        print(f"[Morning Summary] Bilan généré ({len(summary)} caractères)")
+        print(f"[Morning Summary] Aperçu: {summary[:100]}...")
+
+        # Vérifier si c'est un message d'erreur
+        if "Impossible de générer" in summary or "données manquantes" in summary:
+            print(f"[Morning Summary] ⚠️ Le bilan contient une erreur")
+            # Envoyer quand même pour que l'utilisateur sache
+            response = app.client.chat_postMessage(
+                channel=channel,
+                text=summary
+            )
+            print(f"[Morning Summary] Message d'erreur envoyé (ts: {response['ts']})")
+            return False
+
+        # Envoyer au channel (pas dans un thread)
         response = app.client.chat_postMessage(
             channel=channel,
-            text=summary
+            text=summary,
+            unfurl_links=False,
+            unfurl_media=False
         )
 
-        print(f"[Morning Summary] ✅ Bilan envoyé avec succès (ts: {response['ts']})")
+        print(f"[Morning Summary] ✅ Bilan envoyé avec succès dans #{channel} (ts: {response['ts']})")
         return True
     except Exception as e:
         print(f"[Morning Summary] ❌ Erreur lors de l'envoi : {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
