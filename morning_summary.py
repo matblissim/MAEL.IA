@@ -272,7 +272,7 @@ def get_country_acquisitions_with_comparisons():
     FROM `teamdata-291012.sales.box_sales`
     WHERE acquis_status_lvl1 = 'ACQUISITION'
         AND day_in_cycle > 0
-        AND diff_current_box IN (0, -11)  -- 0 = box actuelle (nov 2024), -11 = même box l'année dernière (nov 2023)
+        AND diff_current_box IN (0, -12)  -- 0 = box actuelle (nov 2024), -12 = 12 boxes en arrière = même box l'année dernière (nov 2023)
     GROUP BY ALL
     HAVING DATE_DIFF(CURRENT_DATE(), date, DAY) < 31
         AND date <= CURRENT_DATE()
@@ -287,21 +287,20 @@ def get_country_acquisitions_with_comparisons():
         from datetime import datetime, timedelta
         yesterday = (datetime.now() - timedelta(days=1)).date()
 
-        # PREMIÈRE PASSE : identifier les (mois, day_in_cycle) d'hier par pays
-        yesterday_cycles = {}  # {country: set((month, day_in_cycle))}
+        # PREMIÈRE PASSE : identifier les day_in_cycle d'hier par pays
+        yesterday_cycles = {}  # {country: set(day_in_cycle)}
         max_day_cycles = {}  # {country: max_day_in_cycle}
         for row in raw_data:
             if row['date'] == yesterday and row['diff_current_box'] == 0:
                 country = row['country']
                 day_cycle = row['day_in_cycle']
-                month = row['date'].month  # Extraire le mois
                 if country not in yesterday_cycles:
                     yesterday_cycles[country] = set()
                     max_day_cycles[country] = 0
-                yesterday_cycles[country].add((month, day_cycle))
+                yesterday_cycles[country].add(day_cycle)
                 max_day_cycles[country] = max(max_day_cycles[country], day_cycle)
 
-        print(f"[DEBUG] (Mois, Cycles) d'hier par pays: {yesterday_cycles}")
+        print(f"[DEBUG] day_in_cycle d'hier par pays: {yesterday_cycles}")
         print(f"[DEBUG] Max day_in_cycle par pays: {max_day_cycles}")
 
         # DEUXIÈME PASSE : grouper par pays en comparant les mêmes day_in_cycle
@@ -336,11 +335,10 @@ def get_country_acquisitions_with_comparisons():
                         country_stats[country]['yesterday_coupons'][coupon] = 0
                     country_stats[country]['yesterday_coupons'][coupon] += nb
 
-            # COMPARAISON N-1 : même (mois, day_in_cycle) l'année dernière (diff_current_box = -11)
-            # On compare (mois, day_in_cycle) à (mois, day_in_cycle) !
-            if diff_box == -11 and country in yesterday_cycles:
-                month = date.month
-                if (month, day_cycle) in yesterday_cycles[country]:
+            # COMPARAISON N-1 : même day_in_cycle l'année dernière (diff_current_box = -12)
+            # diff_current_box = -12 garantit qu'on est dans la même box l'année dernière
+            if diff_box == -12 and country in yesterday_cycles:
+                if day_cycle in yesterday_cycles[country]:
                     country_stats[country]['lastyear_total'] += nb
 
             # CUMUL DU CYCLE : depuis le début jusqu'à hier (tous les day_in_cycle <= max)
@@ -349,8 +347,8 @@ def get_country_acquisitions_with_comparisons():
                 # Cumul cette année (diff_current_box = 0, tous les jours jusqu'à max_cycle)
                 if diff_box == 0 and day_cycle <= max_cycle:
                     country_stats[country]['cycle_cumul_ty'] += nb
-                # Cumul l'année dernière (diff_current_box = -11, tous les jours jusqu'à max_cycle)
-                elif diff_box == -11 and day_cycle <= max_cycle:
+                # Cumul l'année dernière (diff_current_box = -12, tous les jours jusqu'à max_cycle)
+                elif diff_box == -12 and day_cycle <= max_cycle:
                     country_stats[country]['cycle_cumul_ly'] += nb
 
         # Calculer les métriques finales
