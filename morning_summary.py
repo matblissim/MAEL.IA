@@ -353,14 +353,29 @@ def get_crm_yesterday():
     Récupère les métriques CRM de la veille depuis normalised-417010.crm.
 
     Returns:
-        dict avec les métriques CRM ou None
+        list de dict avec les données CRM par campagne
     """
     if not bq_client_normalized:
-        return None
+        return []
 
-    # Pour l'instant, retourner None - à implémenter si la table existe
-    # TODO: Implémenter quand la structure CRM est connue
-    return None
+    query = """
+    SELECT *
+    FROM `normalised-417010.crm.Export_imagino_extract`
+    WHERE startdate = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+    LIMIT 1000
+    """
+
+    try:
+        job = bq_client_normalized.query(query)
+        rows = list(job.result(timeout=30))
+
+        if rows:
+            # Convertir en liste de dicts
+            return [dict(row) for row in rows]
+        return []
+    except Exception as e:
+        print(f"❌ Erreur get_crm_yesterday: {e}")
+        return []
 
 
 def generate_daily_summary():
@@ -462,8 +477,39 @@ def generate_daily_summary():
     if crm_data:
         lines.append("✉️ *2. CRM – Emails de la veille*")
         lines.append("")
-        # TODO: Implémenter quand les données CRM seront disponibles
-        lines.append("_Données CRM en cours d'intégration..._")
+
+        # Grouper par campagne et calculer les métriques
+        # Assumant que la table a des colonnes comme: campaign, country, sent, delivered, opened, clicked
+        # On affichera les premières campagnes
+
+        if len(crm_data) > 0:
+            # Afficher un aperçu des campagnes
+            lines.append("*Campagne* │ *Pays* │ *Envoyés* │ *Ouverts* │ *Clics* │ *Open rate*")
+            lines.append("─" * 65)
+
+            # Prendre les premières campagnes (max 5)
+            for i, campaign in enumerate(crm_data[:5]):
+                # Extraire les données (adapter selon la vraie structure)
+                camp_name = str(campaign.get('campaign_name', campaign.get('name', 'N/A')))[:20]
+                country = str(campaign.get('country', campaign.get('dw_country_code', 'N/A')))
+                sent = campaign.get('sent', campaign.get('emails_sent', 0))
+                opened = campaign.get('opened', campaign.get('unique_opens', 0))
+                clicked = campaign.get('clicked', campaign.get('unique_clicks', 0))
+
+                # Calculer open rate
+                open_rate = (opened / sent * 100) if sent > 0 else 0
+
+                flag = get_country_flag(country)
+
+                lines.append(
+                    f"{camp_name:20} │ {flag} {country:2} │ {sent:7,} │ {opened:6,} │ {clicked:5,} │ {open_rate:5.1f}%"
+                )
+
+            lines.append("")
+            lines.append(f"_Total: {len(crm_data)} campagne(s) envoyée(s) hier_")
+        else:
+            lines.append("_Aucune campagne CRM envoyée hier_")
+
         lines.append("")
 
     lines.append("─" * 65)
