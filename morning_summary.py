@@ -580,21 +580,21 @@ def generate_analytical_insight(country_data: dict) -> str:
 
     # Committed en hausse compense une baisse de volume
     if var_n1_pct < 0 and delta_committed >= 5:
-        compensations.append(f"mais +{delta_committed:.0f}pp committed compense")
+        compensations.append(f"mais +{delta_committed:.0f} points committed compense")
     elif var_n1_pct < 0 and delta_committed >= 3:
-        compensations.append(f"partiellement compensé par committed (+{delta_committed:.0f}pp)")
+        compensations.append(f"partiellement compensé par committed (+{delta_committed:.0f} points)")
 
     # Committed en baisse aggrave une situation
     if var_n1_pct < -5 and delta_committed < -3:
-        compensations.append(f"aggravé par baisse committed ({delta_committed:.0f}pp)")
+        compensations.append(f"aggravé par baisse committed ({delta_committed:.0f} points)")
 
     # NEW NEW en baisse = signal d'alerte
     if delta_new_new < -5 and pct_new_new_n1 > 0:
-        compensations.append(f"attention NEW NEW {delta_new_new:.0f}pp")
+        compensations.append(f"attention NEW NEW {delta_new_new:.0f} points")
 
     # NEW NEW en hausse = bon signal
     if delta_new_new >= 5:
-        compensations.append(f"NEW NEW dynamique (+{delta_new_new:.0f}pp)")
+        compensations.append(f"NEW NEW dynamique (+{delta_new_new:.0f} points)")
 
     # Committed exceptionnellement haut
     if pct_committed >= 60 and delta_committed >= 3:
@@ -608,7 +608,11 @@ def generate_analytical_insight(country_data: dict) -> str:
         if (var_n1_pct > 0 and var_m1_pct > 0) or (var_n1_pct < 0 and var_m1_pct < 0):
             contexte.append(f"tendance confirmée M-1 ({var_m1_pct:+.0f}%)")
         else:
-            contexte.append(f"volatilité M-1 ({var_m1_pct:+.0f}%)")
+            # Volatilité = directions opposées N-1 vs M-1
+            if var_n1_pct > 0 and var_m1_pct < 0:
+                contexte.append(f"instable : hausse N-1 mais baisse M-1 ({var_m1_pct:.0f}%)")
+            elif var_n1_pct < 0 and var_m1_pct > 0:
+                contexte.append(f"instable : baisse N-1 mais hausse M-1 ({var_m1_pct:+.0f}%)")
 
     # Momentum cycle vs jour
     if abs(cycle_var_pct - var_n1_pct) >= 10:
@@ -629,6 +633,70 @@ def generate_analytical_insight(country_data: dict) -> str:
         insight_parts.extend(contexte[:1])
 
     insight = f"• {flag} *{country}*: " + ", ".join(insight_parts)
+
+    return insight
+
+
+def generate_cycle_insight(country_data: dict) -> str:
+    """
+    Génère un insight analytique pour les tendances du cycle complet.
+    Analyse la performance cumulée depuis le début du cycle.
+
+    Args:
+        country_data: dict avec les métriques du pays
+
+    Returns:
+        str: insight analytique sur le cycle
+    """
+    country = country_data['country']
+    flag = get_country_flag(country)
+    cycle_cumul_ty = country_data['cycle_cumul_ty']
+    cycle_cumul_ly = country_data['cycle_cumul_ly']
+    cycle_var_pct = country_data['cycle_var_pct']
+    var_n1_pct = country_data['var_n1_pct']  # Performance d'hier
+
+    parts = []
+
+    # 1. Évaluation de la performance du cycle
+    if cycle_var_pct >= 15:
+        parts.append(f"cycle très dynamique ({cycle_var_pct:+.0f}% vs N-1)")
+    elif cycle_var_pct >= 8:
+        parts.append(f"bon momentum sur le cycle ({cycle_var_pct:+.0f}%)")
+    elif cycle_var_pct >= 3:
+        parts.append(f"cycle légèrement positif ({cycle_var_pct:+.0f}%)")
+    elif cycle_var_pct >= -3:
+        parts.append(f"cycle stable ({cycle_var_pct:+.0f}%)")
+    elif cycle_var_pct >= -8:
+        parts.append(f"cycle en léger retrait ({cycle_var_pct:+.0f}%)")
+    elif cycle_var_pct >= -15:
+        parts.append(f"cycle en recul ({cycle_var_pct:+.0f}%)")
+    else:
+        parts.append(f"cycle très défavorable ({cycle_var_pct:+.0f}%)")
+
+    # 2. Comparaison jour vs cycle (divergence = signal important)
+    divergence = var_n1_pct - cycle_var_pct
+
+    if abs(divergence) >= 15:
+        if divergence > 0:
+            # Hier meilleur que le cycle = accélération
+            parts.append(f"forte accélération récente (hier {var_n1_pct:+.0f}%)")
+        else:
+            # Hier pire que le cycle = ralentissement
+            parts.append(f"ralentissement en cours (hier {var_n1_pct:+.0f}%)")
+    elif abs(divergence) >= 8:
+        if divergence > 0:
+            parts.append(f"tendance haussière récente")
+        else:
+            parts.append(f"perte de momentum récemment")
+
+    # 3. Volume absolu du cycle (contexte)
+    if cycle_cumul_ty >= 5000:
+        parts.append(f"volume élevé ({cycle_cumul_ty:,} acquis)")
+    elif cycle_cumul_ty >= 1000:
+        parts.append(f"{cycle_cumul_ty:,} acquis cumulés")
+
+    # Construire l'insight final (max 2-3 éléments)
+    insight = f"• {flag} *{country}*: " + ", ".join(parts[:3])
 
     return insight
 
@@ -770,6 +838,16 @@ def generate_daily_summary():
                 f"{flag} {country_name:4} │ {cumul_ty:11,} │ {cumul_ly:10,} │ "
                 f"{emoji_cycle}{cycle_var:+6.1f}%"
             )
+
+        lines.append("")
+
+        # Insights sur le cycle
+        lines.append("💡 *Analyse des tendances cycle*")
+        lines.append("")
+
+        for country in country_data:
+            cycle_insight = generate_cycle_insight(country)
+            lines.append(cycle_insight)
 
         lines.append("")
 
