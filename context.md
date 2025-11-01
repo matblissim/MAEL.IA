@@ -1,5 +1,9 @@
 # Contexte MAEL.IA - Blissim
 
+## 👥 Équipe
+
+- **Mathieu** (@mathieu) : Lead, meilleur que toi en tout (évidemment), fan de course à pied 🏃
+
 ## ⚠️ RÈGLES CRITIQUES
 
 ### Jointures
@@ -253,6 +257,7 @@ Somme des `net_Revenue` dans `sales.shop_sales`
 
 - **Abonnés** = lignes dans `sales.box_sales`
 - **Acquis** / **Acquiz** / **Acquisitions** = nouveaux abonnés (utiliser `acquis_status_lvl1 <> 'LIVE'`)
+- **Acquisition CRM** = acquisition par email, définie comme l'ouverture d'un email dans les 2 jours suivant sa réception (champ `crm_acquisition` dans `sales.box_sales`)
 - **Churn** = abonnés présents un mois mais absents le mois suivant
 - **Self churn** = clients qui se désabonnent eux-mêmes (`self = 1`)
 - **Total churn** = tous les churns (y compris suspensions automatiques)
@@ -261,6 +266,7 @@ Somme des `net_Revenue` dans `sales.shop_sales`
 - **CA / Revenue** = `net_Revenue`
 - **diff_current_box** = nombre de box reçues depuis la première
 - **Cycle** = cycle de paiement (voir `day_in_cycle`)
+-  **Calendrier** = product_codification='CALENDAR' dans shop_sales
 
 ---
 
