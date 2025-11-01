@@ -248,14 +248,10 @@ def format_metric_line(label, current, previous, is_percentage=False):
     return f"{emoji} *{label}*: {current_str} (vs {previous_str}: {symbol}{variance_abs:+.0f} / {symbol}{variance_pct:+.1f}%)"
 
 
-def get_country_acquisitions_with_comparisons(date_str: str, date_m1: str, date_n1: str):
+def get_country_acquisitions_with_comparisons():
     """
     Récupère les acquisitions par pays avec comparaisons M-1 et N-1.
-
-    Args:
-        date_str: Date actuelle
-        date_m1: Date M-1 (mois dernier)
-        date_n1: Date N-1 (année dernière)
+    Utilise diff_current_box pour les comparaisons temporelles.
 
     Returns:
         list de dict avec toutes les données par pays
@@ -264,70 +260,70 @@ def get_country_acquisitions_with_comparisons(date_str: str, date_m1: str, date_
         return []
 
     query = f"""
-    WITH current_data AS (
+    WITH LY AS (
       SELECT
-        dw_country_code as country,
-        COUNT(DISTINCT user_key) as nb_acquis,
-        COUNTIF(raffed = 1 OR gift = 1 OR cannot_suspend = 1) as nb_promo,
-        ROUND(COUNTIF(raffed = 1 OR gift = 1 OR cannot_suspend = 1) * 100.0 / NULLIF(COUNT(DISTINCT user_key), 0), 1) as pct_promo
+        dw_country_code,
+        acquis_status_lvl2,
+        day_in_cycle,
+        raffed,
+        coupon,
+        cannot_suspend,
+        MAX(DATE(payment_date)) as date,
+        COUNT(*) as nbly
       FROM `teamdata-291012.sales.box_sales`
-      WHERE DATE(payment_date) = '{date_str}'
-        AND acquis_status_lvl1 <> 'LIVE'
-        AND payment_status = 'paid'
-      GROUP BY dw_country_code
+      WHERE diff_current_box = -11
+        AND acquis_status_lvl1 = 'ACQUISITION'
+        AND acquis_status_lvl2 <> 'Unknown'
+      GROUP BY ALL
     ),
-    m1_data AS (
+    TY AS (
       SELECT
-        dw_country_code as country,
-        COUNT(DISTINCT user_key) as nb_acquis_m1
+        dw_country_code,
+        acquis_status_lvl2,
+        day_in_cycle,
+        coupon,
+        raffed,
+        cannot_suspend,
+        MAX(DATE(payment_date)) as date,
+        COUNT(*) as nbty
       FROM `teamdata-291012.sales.box_sales`
-      WHERE DATE(payment_date) = '{date_m1}'
-        AND acquis_status_lvl1 <> 'LIVE'
-        AND payment_status = 'paid'
-      GROUP BY dw_country_code
+      WHERE diff_current_box = 0
+        AND acquis_status_lvl1 = 'ACQUISITION'
+        AND acquis_status_lvl2 <> 'Unknown'
+      GROUP BY ALL
     ),
-    n1_data AS (
+    country_aggregated AS (
       SELECT
-        dw_country_code as country,
-        COUNT(DISTINCT user_key) as nb_acquis_n1
-      FROM `teamdata-291012.sales.box_sales`
-      WHERE DATE(payment_date) = '{date_n1}'
-        AND acquis_status_lvl1 <> 'LIVE'
-        AND payment_status = 'paid'
-      GROUP BY dw_country_code
-    ),
-    top_coupon_per_country AS (
-      SELECT
-        dw_country_code as country,
-        coupon as top_coupon,
-        ROW_NUMBER() OVER (PARTITION BY dw_country_code ORDER BY COUNT(DISTINCT user_key) DESC) as rn
-      FROM `teamdata-291012.sales.box_sales`
-      WHERE DATE(payment_date) = '{date_str}'
-        AND acquis_status_lvl1 <> 'LIVE'
-        AND payment_status = 'paid'
-        AND coupon IS NOT NULL
-      GROUP BY dw_country_code, coupon
+        dw_country_code,
+        TY.date,
+        SUM(nbly) as total_last_year,
+        SUM(nbty) as total_this_year,
+        SUM(CASE WHEN TY.raffed = 1 OR TY.cannot_suspend = 1 THEN nbty ELSE 0 END) as nb_promo_ty,
+        -- Coupon le plus fréquent
+        ARRAY_AGG(TY.coupon ORDER BY nbty DESC LIMIT 1)[OFFSET(0)] as top_coupon
+      FROM TY
+      LEFT JOIN LY USING(day_in_cycle, acquis_status_lvl2, dw_country_code)
+      WHERE day_in_cycle > 0
+        AND DATE_DIFF(CURRENT_DATE(), TY.date, DAY) BETWEEN 1 AND 10
+      GROUP BY dw_country_code, TY.date
     )
     SELECT
-      cd.country,
-      cd.nb_acquis,
-      cd.nb_promo,
-      cd.pct_promo,
-      COALESCE(m1.nb_acquis_m1, 0) as nb_acquis_m1,
-      COALESCE(n1.nb_acquis_n1, 0) as nb_acquis_n1,
-      COALESCE(tc.top_coupon, 'N/A') as top_coupon,
-      ROUND((cd.nb_acquis - COALESCE(m1.nb_acquis_m1, 0)) * 100.0 / NULLIF(m1.nb_acquis_m1, 0), 1) as var_m1_pct,
-      ROUND((cd.nb_acquis - COALESCE(n1.nb_acquis_n1, 0)) * 100.0 / NULLIF(n1.nb_acquis_n1, 0), 1) as var_n1_pct
-    FROM current_data cd
-    LEFT JOIN m1_data m1 ON cd.country = m1.country
-    LEFT JOIN n1_data n1 ON cd.country = n1.country
-    LEFT JOIN top_coupon_per_country tc ON cd.country = tc.country AND tc.rn = 1
-    ORDER BY cd.nb_acquis DESC
+      dw_country_code as country,
+      total_this_year as nb_acquis,
+      total_last_year as nb_acquis_n1,
+      nb_promo_ty as nb_promo,
+      ROUND(nb_promo_ty * 100.0 / NULLIF(total_this_year, 0), 1) as pct_promo,
+      COALESCE(top_coupon, 'N/A') as top_coupon,
+      ROUND((total_this_year - total_last_year) * 100.0 / NULLIF(total_last_year, 0), 1) as var_n1_pct,
+      0 as var_m1_pct  -- Pas de M-1 dans cette logique, on garde N-1
+    FROM country_aggregated
+    WHERE total_this_year > 0
+    ORDER BY total_this_year DESC
     """
 
     try:
         job = bq_client.query(query)
-        rows = list(job.result(timeout=30))
+        rows = list(job.result(timeout=60))
         return [dict(row) for row in rows] if rows else []
     except Exception as e:
         print(f"❌ Erreur get_country_acquisitions_with_comparisons: {e}")
@@ -352,6 +348,21 @@ def get_country_flag(country_code: str) -> str:
     return flags.get(country_code, '🌍')
 
 
+def get_crm_yesterday():
+    """
+    Récupère les métriques CRM de la veille depuis normalised-417010.crm.
+
+    Returns:
+        dict avec les métriques CRM ou None
+    """
+    if not bq_client_normalized:
+        return None
+
+    # Pour l'instant, retourner None - à implémenter si la table existe
+    # TODO: Implémenter quand la structure CRM est connue
+    return None
+
+
 def generate_daily_summary():
     """
     Génère le bilan quotidien complet au format tableau.
@@ -374,7 +385,10 @@ def generate_daily_summary():
     last_month_eng = get_engagement_metrics(last_month)
 
     # Récupérer les données par pays avec comparaisons
-    country_data = get_country_acquisitions_with_comparisons(yesterday, last_month, last_year)
+    country_data = get_country_acquisitions_with_comparisons()
+
+    # Récupérer les données CRM
+    crm_data = get_crm_yesterday()
 
     if not current_acq or not current_eng:
         return "⚠️ Impossible de générer le bilan quotidien : données manquantes"
@@ -390,8 +404,8 @@ def generate_daily_summary():
 
     if country_data:
         # En-tête du tableau
-        lines.append("*Pays* │ *Acquis* │ *Var M-1* │ *Var N-1* │ *% Promo* │ *Coupon top*")
-        lines.append("─" * 70)
+        lines.append("*Pays* │ *Acquis* │ *Var N-1* │ *% Promo* │ *Coupon top*")
+        lines.append("─" * 65)
 
         total_acquis = sum(c['nb_acquis'] for c in country_data)
 
@@ -399,19 +413,16 @@ def generate_daily_summary():
             flag = get_country_flag(country['country'])
             country_name = country['country'] or 'N/A'
             nb = int(country['nb_acquis'])
-            var_m1 = country['var_m1_pct'] or 0
             var_n1 = country['var_n1_pct'] or 0
             pct_promo = country['pct_promo'] or 0
             top_coupon = (country['top_coupon'] or 'N/A')[:15]  # Limiter à 15 chars
 
-            # Emoji pour les variations
-            emoji_m1 = "📈" if var_m1 > 0 else "📉" if var_m1 < 0 else "➡️"
+            # Emoji pour la variation
             emoji_n1 = "📈" if var_n1 > 0 else "📉" if var_n1 < 0 else "➡️"
 
             lines.append(
                 f"{flag} {country_name:4} │ {nb:5,} │ "
-                f"{emoji_m1}{var_m1:+5.1f}% │ "
-                f"{emoji_n1}{var_n1:+5.1f}% │ "
+                f"{emoji_n1}{var_n1:+6.1f}% │ "
                 f"{pct_promo:5.1f}% │ "
                 f"{top_coupon}"
             )
@@ -446,7 +457,16 @@ def generate_daily_summary():
         lines.append(f"• {flag} {top_country['country']} reste le moteur principal ({pct_total:.1f}% des volumes)")
 
     lines.append("")
-    lines.append("─" * 70)
+
+    # ========== CRM ==========
+    if crm_data:
+        lines.append("✉️ *2. CRM – Emails de la veille*")
+        lines.append("")
+        # TODO: Implémenter quand les données CRM seront disponibles
+        lines.append("_Données CRM en cours d'intégration..._")
+        lines.append("")
+
+    lines.append("─" * 65)
     lines.append("_Généré par Franck 🤖_")
 
     return "\n".join(lines)
