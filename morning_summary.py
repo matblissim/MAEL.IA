@@ -265,6 +265,7 @@ def get_country_acquisitions_with_comparisons():
         dw_country_code as country,
         acquis_status_lvl2,
         diff_current_box,
+        day_in_cycle,
         coupon,
         cannot_suspend,
         COUNT(*) as nb_acquis
@@ -286,7 +287,20 @@ def get_country_acquisitions_with_comparisons():
         from datetime import datetime, timedelta
         yesterday = (datetime.now() - timedelta(days=1)).date()
 
-        # Grouper par pays pour hier
+        # PREMIÈRE PASSE : identifier les (mois, day_in_cycle) d'hier par pays
+        yesterday_cycles = {}  # {country: set((month, day_in_cycle))}
+        for row in raw_data:
+            if row['date'] == yesterday and row['diff_current_box'] == 0:
+                country = row['country']
+                day_cycle = row['day_in_cycle']
+                month = row['date'].month  # Extraire le mois
+                if country not in yesterday_cycles:
+                    yesterday_cycles[country] = set()
+                yesterday_cycles[country].add((month, day_cycle))
+
+        print(f"[DEBUG] (Mois, Cycles) d'hier par pays: {yesterday_cycles}")
+
+        # DEUXIÈME PASSE : grouper par pays en comparant les mêmes day_in_cycle
         country_stats = {}
         for row in raw_data:
             country = row['country']
@@ -295,6 +309,7 @@ def get_country_acquisitions_with_comparisons():
             nb = row['nb_acquis']
             cannot_suspend = row['cannot_suspend']
             coupon = row['coupon']
+            day_cycle = row['day_in_cycle']
 
             if country not in country_stats:
                 country_stats[country] = {
@@ -305,7 +320,7 @@ def get_country_acquisitions_with_comparisons():
                     'lastyear_total': 0
                 }
 
-            # Hier (diff_current_box = 0)
+            # Hier (diff_current_box = 0, date = yesterday)
             if date == yesterday and diff_box == 0:
                 country_stats[country]['yesterday_total'] += nb
                 if cannot_suspend == 1:
@@ -315,9 +330,12 @@ def get_country_acquisitions_with_comparisons():
                         country_stats[country]['yesterday_coupons'][coupon] = 0
                     country_stats[country]['yesterday_coupons'][coupon] += nb
 
-            # Même date l'année dernière (diff_current_box = -1)
-            if date == yesterday and diff_box == -1:
-                country_stats[country]['lastyear_total'] += nb
+            # COMPARAISON N-1 : même (mois, day_in_cycle) l'année dernière (diff_current_box = -1)
+            # On compare (mois, day_in_cycle) à (mois, day_in_cycle) !
+            if diff_box == -1 and country in yesterday_cycles:
+                month = date.month
+                if (month, day_cycle) in yesterday_cycles[country]:
+                    country_stats[country]['lastyear_total'] += nb
 
         # Calculer les métriques finales
         aggregated = []
@@ -486,7 +504,7 @@ def generate_daily_summary():
 
     insights = []
 
-    # Insights par pays avec variations significatives
+    # Insights par pays avec variations significatives (1 ligne par pays max)
     if country_data:
         total_global = sum(c['nb_acquis'] for c in country_data)
 
@@ -497,17 +515,23 @@ def generate_daily_summary():
             nb = country['nb_acquis']
             pct_committed = country['pct_committed'] or 0
 
+            country_insights = []
+
             # Variation significative (> 15% ou < -15%)
             if abs(var_n1) >= 15:
                 emoji = "📈" if var_n1 > 0 else "📉"
                 direction = "forte hausse" if var_n1 > 0 else "baisse marquée"
-                insights.append(f"• {flag} *{country_name}*: {direction} de {abs(var_n1):.0f}% vs N-1 ({nb:,} acquis)")
+                country_insights.append(f"{direction} de {abs(var_n1):.0f}% vs N-1")
 
             # % Committed anormal (très élevé > 70% ou très faible < 20%)
             if pct_committed >= 70:
-                insights.append(f"• {flag} *{country_name}*: Taux de committed élevé ({pct_committed:.1f}%)")
+                country_insights.append(f"committed élevé ({pct_committed:.1f}%)")
             elif pct_committed <= 20 and nb >= 10:
-                insights.append(f"• {flag} *{country_name}*: Taux de committed faible ({pct_committed:.1f}%)")
+                country_insights.append(f"committed faible ({pct_committed:.1f}%)")
+
+            # Si des insights pour ce pays, les combiner en une ligne
+            if country_insights:
+                insights.append(f"• {flag} *{country_name}*: {', '.join(country_insights)} ({nb:,} acquis)")
 
         # Si aucun insight particulier
         if not insights:
