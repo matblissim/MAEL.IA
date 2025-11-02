@@ -508,16 +508,17 @@ def get_country_acquisitions_with_comparisons():
                 country_stats[country]['yesterday_new_new'] += nb_actuel
                 country_stats[country]['year_prec_new_new'] += nb_annee_prec
 
-            if coupon:
-                # Track total uses per coupon
-                if coupon not in country_stats[country]['yesterday_coupons']:
-                    country_stats[country]['yesterday_coupons'][coupon] = 0
-                    country_stats[country]['yesterday_coupons_committed'][coupon] = 0
-                country_stats[country]['yesterday_coupons'][coupon] += nb_actuel
+            # Track coupons (including null/empty as "No coupon")
+            coupon_key = coupon if coupon else "No coupon"
 
-                # Track committed uses per coupon
-                if cannot_suspend == 1:
-                    country_stats[country]['yesterday_coupons_committed'][coupon] += nb_actuel
+            if coupon_key not in country_stats[country]['yesterday_coupons']:
+                country_stats[country]['yesterday_coupons'][coupon_key] = 0
+                country_stats[country]['yesterday_coupons_committed'][coupon_key] = 0
+            country_stats[country]['yesterday_coupons'][coupon_key] += nb_actuel
+
+            # Track committed uses per coupon
+            if cannot_suspend == 1:
+                country_stats[country]['yesterday_coupons_committed'][coupon_key] += nb_actuel
 
         # Récupérer le cumul du cycle
         print("[Morning Summary] Calcul du cumul du cycle...")
