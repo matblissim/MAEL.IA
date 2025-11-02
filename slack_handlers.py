@@ -169,8 +169,12 @@ def setup_handlers(context: str):
             except:
                 pass
 
-    @app.event("message")
-    def on_message(event, client, logger):
+    # ⚠️ DÉSACTIVÉ : Slack arrête d'envoyer les événements "message" après quelques minutes
+    # Preuve : pas de réaction 👀 ajoutée → handler jamais appelé → événement jamais reçu
+    # OBLIGATION : utiliser @Franck ou @Frida dans les threads
+    # @app.event("message")
+    def on_message_DISABLED(event, client, logger):
+        return
         try:
             # Filtrage basique
             if event.get("subtype"):
