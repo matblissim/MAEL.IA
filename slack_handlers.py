@@ -169,11 +169,8 @@ def setup_handlers(context: str):
             except:
                 pass
 
-    # Handler on_message DÉSACTIVÉ - cause des conflits entre Franck et FRIDA
-    # Utiliser uniquement @mention pour appeler les bots
-    # @app.event("message")
-    def on_message_DISABLED(event, client, logger):
-        pass
+    @app.event("message")
+    def on_message(event, client, logger):
         try:
             # Filtrage basique
             if event.get("subtype"):
@@ -189,17 +186,39 @@ def setup_handlers(context: str):
             if user == get_bot_user_id():
                 return
 
-            # Si le message mentionne un autre bot, ignorer
+            # Vérifier quel bot "possède" ce thread en regardant le premier message
             import re
             my_bot_id = get_bot_user_id()
-            bot_mentions = re.findall(r'<@(U[A-Z0-9]+)>', text)
-            if bot_mentions and my_bot_id not in bot_mentions:
-                return  # Ce message mentionne un autre bot
 
-            logger.info(f"💬 Message dans thread {thread_ts[:10]}: '{text[:100]}'")
+            try:
+                # Récupérer le premier message du thread
+                result = client.conversations_history(
+                    channel=channel,
+                    latest=thread_ts,
+                    limit=1,
+                    inclusive=True
+                )
 
-            # Répondre à TOUS les messages dans les threads
-            # (plus de vérification ACTIVE_THREADS qui était perdue au redémarrage)
+                if result and result.get("messages"):
+                    first_msg = result["messages"][0]
+                    first_text = first_msg.get("text", "")
+
+                    # Chercher les mentions de bots dans le premier message
+                    bot_mentions = re.findall(r'<@(U[A-Z0-9]+)>', first_text)
+
+                    # Si le premier message mentionne un bot
+                    if bot_mentions:
+                        # Et que ce n'est pas MOI → ignorer tout ce thread
+                        if my_bot_id not in bot_mentions:
+                            return
+                    # Si aucune mention de bot dans le premier message, on ignore aussi
+                    elif not bot_mentions:
+                        return
+            except Exception as e:
+                logger.warning(f"⚠️ Erreur vérification thread owner: {e}")
+                return
+
+            logger.info(f"💬 Message dans mon thread {thread_ts[:10]}: '{text[:100]}'")
 
             # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
             try:
