@@ -4,9 +4,10 @@
 import re
 import logging
 import time
+import errno
 from collections import OrderedDict
-from typing import Optional
-from functools import lru_cache
+from typing import Optional, Callable, Any
+from functools import lru_cache, wraps
 from config import app, BOT_NAME
 from claude_client import ask_claude, format_sql_queries
 from thread_memory import get_last_queries
@@ -18,6 +19,42 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------
+# Gestion des Broken Pipe avec Retry
+# ---------------------------------------
+def retry_on_broken_pipe(max_retries=3, backoff_factor=2):
+    """Décorateur pour retry automatique en cas de broken pipe ou erreurs réseau."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
+                    last_exception = e
+                    # Vérifier si c'est bien un broken pipe (errno 32)
+                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
+                        # Si c'est une autre erreur OSError, on ne retry pas
+                        raise
+
+                    if attempt < max_retries - 1:
+                        wait_time = backoff_factor ** attempt
+                        logger.warning(f"⚠️ {e.__class__.__name__} détecté - Retry {attempt + 1}/{max_retries} dans {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ {e.__class__.__name__} persistant après {max_retries} tentatives")
+                except Exception as e:
+                    # Pour les autres exceptions, on ne retry pas
+                    raise
+
+            # Si on arrive ici, toutes les tentatives ont échoué
+            raise last_exception
+
+        return wrapper
+    return decorator
 
 
 # ---------------------------------------
@@ -246,7 +283,27 @@ def setup_handlers(context: str):
                     invalidate_thread_cache(thread_ts)
                 return
 
-            answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
+            # Appel à Claude avec retry automatique en cas de broken pipe
+            logger.info("🤖 Appel à Claude...")
+            answer = None
+            for attempt in range(3):
+                try:
+                    answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
+                    logger.info("✅ Réponse de Claude reçue")
+                    break
+                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
+                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
+                        raise
+                    if attempt < 2:
+                        wait_time = 2 ** attempt
+                        logger.warning(f"⚠️ Broken pipe lors de l'appel à Claude - Retry {attempt + 1}/3 dans {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ Broken pipe persistant après 3 tentatives - Abandon")
+                        raise
+
+            if answer is None:
+                answer = "⚠️ Désolé, j'ai rencontré un problème de connexion. Peux-tu réessayer ?"
 
             # Ajouter les requêtes SQL seulement si demandé
             if any(k in prompt.lower() for k in ["sql", "requête", "requete", "query", "liste", "export", "j'aimerais avoir", "notion", "détail", "detail"]):
@@ -254,9 +311,24 @@ def setup_handlers(context: str):
                 if queries:
                     answer += format_sql_queries(queries)
 
-            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
-            invalidate_thread_cache(thread_ts)  # Invalider le cache car le bot vient de poster
-            logger.info(f"✅ Réponse envoyée dans thread {thread_ts[:10]}...")
+            # Envoi de la réponse avec retry en cas de broken pipe
+            logger.info("📤 Envoi de la réponse à Slack...")
+            for attempt in range(3):
+                try:
+                    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
+                    invalidate_thread_cache(thread_ts)
+                    logger.info(f"✅ Réponse envoyée dans thread {thread_ts[:10]}...")
+                    break
+                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
+                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
+                        raise
+                    if attempt < 2:
+                        wait_time = 2 ** attempt
+                        logger.warning(f"⚠️ Broken pipe lors de l'envoi Slack - Retry {attempt + 1}/3 dans {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ Broken pipe persistant lors de l'envoi Slack après 3 tentatives")
+                        raise
         except Exception as e:
             logger.exception(f"❌ Erreur on_app_mention: {e}")
             try:
@@ -381,16 +453,51 @@ def setup_handlers(context: str):
             except Exception as reaction_error:
                 logger.warning(f"⚠️ Impossible d'ajouter la réaction : {reaction_error}")
 
-            answer = ask_claude(text, thread_ts, CURRENT_CONTEXT)
+            # Appel à Claude avec retry automatique en cas de broken pipe
+            logger.info("🤖 Appel à Claude...")
+            answer = None
+            for attempt in range(3):
+                try:
+                    answer = ask_claude(text, thread_ts, CURRENT_CONTEXT)
+                    logger.info("✅ Réponse de Claude reçue")
+                    break
+                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
+                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
+                        raise
+                    if attempt < 2:
+                        wait_time = 2 ** attempt
+                        logger.warning(f"⚠️ Broken pipe lors de l'appel à Claude - Retry {attempt + 1}/3 dans {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ Broken pipe persistant après 3 tentatives - Abandon")
+                        raise
+
+            if answer is None:
+                answer = "⚠️ Désolé, j'ai rencontré un problème de connexion. Peux-tu réessayer ?"
 
             if any(k in text.lower() for k in ["sql", "requête", "requete", "query"]):
                 queries = get_last_queries(thread_ts)
                 if queries:
                     answer += format_sql_queries(queries)
 
-            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
-            invalidate_thread_cache(thread_ts)  # Invalider le cache car le bot vient de poster
-            logger.info(f"✅ Réponse envoyée dans thread {thread_ts[:10]}...")
+            # Envoi de la réponse avec retry en cas de broken pipe
+            logger.info("📤 Envoi de la réponse à Slack...")
+            for attempt in range(3):
+                try:
+                    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
+                    invalidate_thread_cache(thread_ts)
+                    logger.info(f"✅ Réponse envoyée dans thread {thread_ts[:10]}...")
+                    break
+                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
+                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
+                        raise
+                    if attempt < 2:
+                        wait_time = 2 ** attempt
+                        logger.warning(f"⚠️ Broken pipe lors de l'envoi Slack - Retry {attempt + 1}/3 dans {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ Broken pipe persistant lors de l'envoi Slack après 3 tentatives")
+                        raise
         except Exception as e:
             logger.exception(f"❌ Erreur on_message: {e}")
             try:
