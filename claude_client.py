@@ -294,15 +294,16 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
         except Exception as e:
             import traceback
             import logging
+            import sys
             logger = logging.getLogger(__name__)
 
             # Log avec print ET logger pour être sûr que ça apparaît
             error_msg = f"❌ ERREUR INATTENDUE dans ask_claude : {type(e).__name__}: {e}"
-            print(error_msg)
+            print(error_msg, file=sys.stderr, flush=True)  # Force flush vers stderr
             logger.error(error_msg)
 
             tb_str = traceback.format_exc()
-            print(tb_str)
+            print(tb_str, file=sys.stderr, flush=True)  # Force flush vers stderr
             logger.error(tb_str)
 
             return f"⚠️ Erreur inattendue : {str(e)[:200]}"
