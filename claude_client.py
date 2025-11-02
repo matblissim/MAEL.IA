@@ -292,6 +292,9 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
             else:
                 return f"⚠️ Erreur technique : {msg[:200]}"
         except Exception as e:
+            print(f"❌ ERREUR INATTENDUE dans ask_claude : {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
             return f"⚠️ Erreur inattendue : {str(e)[:200]}"
 
     return "⚠️ Impossible de joindre le modèle après plusieurs tentatives."
