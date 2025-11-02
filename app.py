@@ -2,6 +2,8 @@
 """Point d'entrée principal de l'application MAEL.IA (bot Slack)."""
 
 import os
+import time
+import threading
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 from config import app, bq_client, bq_client_normalized, notion_client, BOT_NAME
@@ -9,6 +11,17 @@ from context_loader import load_context
 from slack_handlers import setup_handlers
 from morning_summary import send_morning_summary
 from morning_summary_handlers import register_morning_summary_handlers
+
+
+def keep_alive():
+    """Thread qui maintient la connexion Socket Mode active avec un ping périodique."""
+    while True:
+        time.sleep(300)  # Ping toutes les 5 minutes
+        try:
+            app.client.auth_test()
+            print("🔄 Keep-alive ping OK")
+        except Exception as e:
+            print(f"⚠️ Keep-alive ping error: {e}")
 
 
 def main():
@@ -92,6 +105,11 @@ def main():
         print(f"⏰ Bilan quotidien activé: tous les jours à {morning_summary_hour:02d}:{morning_summary_minute:02d} dans #{morning_summary_channel}")
     else:
         print("⏰ Bilan quotidien désactivé (MORNING_SUMMARY_ENABLED=false)")
+
+    # Démarrage du thread keep-alive pour éviter le broken pipe
+    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True, name=f"{BOT_NAME}-KeepAlive")
+    keep_alive_thread.start()
+    print(f"🔄 Keep-alive activé (ping toutes les 5 min)\n")
 
     # Démarrage du bot en Socket Mode
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
