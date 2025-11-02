@@ -1212,7 +1212,7 @@ def generate_daily_summary_blocks():
     })
 
     # Fallback text for notifications
-    fallback_text = f'Blissim Acquisition Report – {report_date}: {total_acquis:,} acquisitions ({total_var_avg:+.1f}% YoY avg)'
+    fallback_text = f'Blissim Acquisition Report – {report_date}: {total_acquis:,} acquisitions (Cycle: {total_cycle_cumul:,})'
 
     return {
         'blocks': blocks,
