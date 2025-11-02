@@ -431,24 +431,23 @@ def get_country_acquisitions_with_comparisons():
       b.coupon,
       b.cannot_suspend,
 
-      -- acquisitions d'HIER pour la box de ce mois-ci
+      -- acquisitions d'HIER pour la box de ce mois-ci (cycle-based YoY)
       COUNTIF(
         b.diff_current_box = 0
         AND DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
       ) AS nb_acquis_actuel,
 
-      -- même jour de cycle mais sur la box du mois précédent
+      -- MoM: même date calendaire il y a un mois (pas cycle-based)
       COUNTIF(
-        b.diff_current_box = -1
+        DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)
       ) AS nb_acquis_mois_prec,
 
-      -- même jour de cycle mais sur la box de l'année précédente
+      -- YoY: même jour de cycle mais sur la box de l'année précédente (cycle-based)
       COUNTIF(
         b.diff_current_box = -11
       ) AS nb_acquis_annee_prec,
 
       -- variations
-      SAFE_DIVIDE(COUNTIF(b.diff_current_box = 0), NULLIF(COUNTIF(b.diff_current_box = -1),0)) - 1 AS var_vs_mois_prec,
       SAFE_DIVIDE(COUNTIF(b.diff_current_box = 0), NULLIF(COUNTIF(b.diff_current_box = -11),0)) - 1 AS var_vs_annee_prec
 
     FROM `teamdata-291012.sales.box_sales` b
@@ -457,7 +456,14 @@ def get_country_acquisitions_with_comparisons():
      AND b.day_in_cycle = yc.day_in_cycle
     WHERE b.acquis_status_lvl1 = 'ACQUISITION'
       AND b.day_in_cycle > 0
-      AND b.diff_current_box IN (0, -1, -11)
+      AND (
+        -- Hier (cycle-based)
+        (b.diff_current_box = 0 AND DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY))
+        -- MoM (calendar-based)
+        OR DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)
+        -- YoY (cycle-based)
+        OR b.diff_current_box = -11
+      )
     GROUP BY ALL
     ORDER BY yc.month DESC, yc.day_in_cycle DESC, country
     """
@@ -1175,16 +1181,6 @@ def generate_daily_summary_blocks():
                 'style': 'primary',
                 'value': 'view_full_analysis',
                 'action_id': 'view_full_analysis'
-            },
-            {
-                'type': 'button',
-                'text': {
-                    'type': 'plain_text',
-                    'text': '📥 Export Data',
-                    'emoji': True
-                },
-                'value': 'export_data',
-                'action_id': 'export_data'
             }
         ]
     })

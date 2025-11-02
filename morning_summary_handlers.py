@@ -67,22 +67,13 @@ def register_morning_summary_handlers(app: App):
             text="\n".join(details)
         )
 
-    @app.action("export_data")
-    def handle_export_data(ack, body, client):
-        """Handle 'Export Data' button click."""
-        ack()
+    # Note: Slack Bolt doesn't support wildcard patterns in action_id
+    # We need to use a constraint function instead
+    def is_country_details_action(action_id: str) -> bool:
+        """Check if action_id is a country details button."""
+        return action_id.startswith('view_country_details_')
 
-        # Send ephemeral message with export instructions
-        user_id = body['user']['id']
-        channel = body['channel']['id']
-
-        client.chat_postEphemeral(
-            channel=channel,
-            user=user_id,
-            text="📥 *Export Data*\n\nData export feature coming soon!\n\nAvailable formats:\n• CSV\n• Excel\n• JSON\n\nFor now, you can use the 'View Full Analysis' button to see detailed metrics."
-        )
-
-    @app.action({"action_id": "view_country_details_*"})
+    @app.action(is_country_details_action)
     def handle_country_details(ack, body, action, client):
         """Handle individual country 'Details' button click."""
         ack()
