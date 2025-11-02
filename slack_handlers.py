@@ -106,6 +106,9 @@ BOT_USER_ID = None
 _thread_cache = {}  # Format: {thread_ts: (is_in_thread, timestamp)}
 THREAD_CACHE_TTL = 300  # 5 minutes de cache
 
+# Monitoring des événements reçus
+_last_event_time = time.time()  # Timestamp du dernier événement reçu
+
 
 def get_bot_user_id():
     """Récupère l'ID du bot Slack."""
@@ -214,7 +217,10 @@ def setup_handlers(context: str):
 
     @app.event("app_mention")
     def on_app_mention(body, event, client, logger):
+        global _last_event_time
         try:
+            _last_event_time = time.time()  # Marquer qu'on a reçu un événement
+
             event_id = body.get("event_id")
             if seen_events.seen(event_id):
                 return
@@ -344,7 +350,10 @@ def setup_handlers(context: str):
 
     @app.event("message")
     def on_message(event, client, logger):
+        global _last_event_time
         try:
+            _last_event_time = time.time()  # Marquer qu'on a reçu un événement
+
             # LOG COMPLET DE L'ÉVÉNEMENT POUR DEBUG
             logger.info("="*80)
             logger.info("📥 NOUVEL ÉVÉNEMENT MESSAGE REÇU")
