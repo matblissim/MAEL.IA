@@ -172,10 +172,14 @@ def setup_handlers(context: str):
     @app.event("message")
     def on_message(event, client, logger):
         try:
-            logger.info(f"📨 Message reçu : '{event.get('text', '')[:120]}…' channel={event.get('channel')} thread={event.get('thread_ts', 'NO_THREAD')}")
+            # Log AVANT tout filtrage pour déboguer
+            logger.info(f"📨 Message reçu : '{event.get('text', '')[:120]}…' channel={event.get('channel')} thread={event.get('thread_ts', 'NO_THREAD')} subtype={event.get('subtype', 'NONE')}")
+
             if event.get("subtype"):
+                logger.info(f"⏭️ Message ignoré (subtype={event.get('subtype')})")
                 return
             if "thread_ts" not in event:
+                logger.info("⏭️ Message ignoré (pas de thread_ts)")
                 return
 
             thread_ts = event["thread_ts"]
@@ -184,7 +188,10 @@ def setup_handlers(context: str):
             text = (event.get("text") or "").strip()
 
             if user == get_bot_user_id():
+                logger.info("⏭️ Message ignoré (c'est moi)")
                 return
+
+            logger.info(f"✅ Message accepté dans thread {thread_ts[:10]}… : '{text[:100]}'")
 
             # Répondre à TOUS les messages dans les threads
             # (plus de vérification ACTIVE_THREADS qui était perdue au redémarrage)
