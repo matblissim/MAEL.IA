@@ -452,8 +452,34 @@ def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> st
     except Exception as e:
         import traceback
         import sys
-        error_msg = f"❌ ERREUR BigQuery dans run_sql: {type(e).__name__}: {e}"
+        error_msg = f"❌ ERREUR BigQuery dans execute_bigquery: {type(e).__name__}: {e}"
         print(error_msg, file=sys.stderr, flush=True)
         tb_str = traceback.format_exc()
         print(tb_str, file=sys.stderr, flush=True)
+
+        # Si Broken pipe, recréer le client et réessayer UNE fois
+        if "Broken pipe" in str(e) or "BrokenPipeError" in str(type(e).__name__):
+            print("🔄 Broken pipe détecté, recréation du client BigQuery et retry...", file=sys.stderr, flush=True)
+            try:
+                from google.cloud import bigquery as bq_module
+                # Recréer un client frais
+                project_id = os.getenv("BIGQUERY_PROJECT_ID_2" if project == "normalized" else "BIGQUERY_PROJECT_ID")
+                fresh_client = bq_module.Client(project=project_id)
+
+                # Réessayer la requête avec le nouveau client
+                q = _enforce_limit(query)
+                job = fresh_client.query(q)
+                rows_iter = job.result(timeout=TOOL_TIMEOUT_S)
+                rows = [dict(row) for i, row in enumerate(rows_iter, 1) if i <= MAX_ROWS]
+
+                print("✅ Retry réussi après recréation du client", file=sys.stderr, flush=True)
+
+                # Retourner le résultat basique (sans analyses proactives pour le retry)
+                json_output = json.dumps(rows, default=str, ensure_ascii=False, indent=2)
+                return json_output if json_output else "Aucun résultat."
+
+            except Exception as retry_error:
+                print(f"❌ Retry échoué: {retry_error}", file=sys.stderr, flush=True)
+                traceback.print_exc(file=sys.stderr)
+
         return f"❌ Erreur BigQuery: {str(e)}"
