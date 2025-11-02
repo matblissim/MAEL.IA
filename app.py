@@ -1,10 +1,10 @@
 # app.py
-"""Point d'entrée principal de l'application MAEL.IA (bot Slack Franck)."""
+"""Point d'entrée principal de l'application MAEL.IA (bot Slack)."""
 
 import os
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from apscheduler.schedulers.background import BackgroundScheduler
-from config import app, bq_client, bq_client_normalized, notion_client
+from config import app, bq_client, bq_client_normalized, notion_client, BOT_NAME
 from context_loader import load_context
 from slack_handlers import setup_handlers
 from morning_summary import send_morning_summary
@@ -51,7 +51,7 @@ def main():
         except Exception as e:
             print(f"⚠️ Notion configuré mais erreur: {e}")
 
-    print(f"⚡️ Franck prêt avec {' + '.join(services) if services else 'Claude seul'}")
+    print(f"⚡️ {BOT_NAME} prêt avec {' + '.join(services) if services else 'Claude seul'}")
 
     # Chargement du contexte
     print("\n📖 Chargement du contexte …")

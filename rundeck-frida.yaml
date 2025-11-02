@@ -1,0 +1,216 @@
+- name: MAEL.IA — FRIDA Bot
+  group: mael
+  description: "Exécute app.py pour FRIDA (bot séparé) depuis GitHub"
+  loglevel: INFO
+  executionEnabled: true
+  nodeFilterEditable: false
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+      - scriptInterpreter: /bin/bash
+        interpreterArgsQuoted: false
+        fileExtension: .sh
+        script: |
+          set -eu
+
+          # 🤖 Configuration FRIDA - Répertoire séparé
+          BOT_NAME="FRIDA"
+          BOT_DIR="MAEL.IA-FRIDA"
+          PID_FILE="${BOT_DIR}/.frida.pid"
+
+          echo "➡️ Clone/Pull ($BOT_NAME)"
+          if [ ! -d "${BOT_DIR}/.git" ]; then
+            git clone "${RD_OPTION_GIT_URL}" "${BOT_DIR}"
+          fi
+          cd "${BOT_DIR}"
+
+          # 📌 Branche pour FRIDA
+          BRANCH="${RD_OPTION_GIT_BRANCH}"
+          git fetch --all --prune || true
+          git checkout "$BRANCH" || git checkout -b "$BRANCH" "origin/$BRANCH"
+          git pull --ff-only || true
+
+          echo "➡️ venv + deps"
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          if [ ! -d ".venv" ]; then $PY -m venv .venv || true; fi
+          . .venv/bin/activate
+          $PY -m pip install --upgrade pip
+          awk '!/^mcp(\[.*\])?(\s*==.*)?$/ && !/^\s*#/ && NF' requirements.txt > .req_nop.txt
+          pip install -r .req_nop.txt
+
+          echo "➡️ service_account.json (depuis base64)"
+          printf "%s" "${RD_OPTION_SERVICE_ACCOUNT_B64}" | base64 -d > service_account.json
+          chmod 600 service_account.json
+          $PY - <<'PY'
+import json,sys,pathlib
+p=pathlib.Path("service_account.json")
+t=p.read_text(errors="replace")
+try:
+    j=json.loads(t)
+    print("JSON OK: project_id=", j.get("project_id"))
+except Exception as e:
+    print("INVALID JSON:", e); sys.exit(2)
+PY
+          export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/service_account.json"
+
+          echo "➡️ Génération du .env pour $BOT_NAME"
+          umask 177
+          : > .env
+          {
+            echo "BOT_NAME=${BOT_NAME}"
+            echo "BQ_PROJECT=${RD_OPTION_BQ_PROJECT}"
+            echo "BQ_LOCATION=${RD_OPTION_BQ_LOCATION}"
+            echo "BQ_ALLOWED_DATASETS=${RD_OPTION_BQ_ALLOWED_DATASETS}"
+            echo "OPENAI_API_KEY=${RD_OPTION_OPENAI_API_KEY}"
+            echo "ANTHROPIC_API_KEY=${RD_OPTION_ANTHROPIC_API_KEY}"
+            echo "SLACK_APP_TOKEN=${RD_OPTION_SLACK_APP_TOKEN}"
+            echo "SLACK_BOT_TOKEN=${RD_OPTION_SLACK_BOT_TOKEN}"
+            echo "DBT_MANIFEST_PATH=/home/rundeck/DBT/target/manifest.json"
+            echo "DBT_SCHEMAS=sales,user,inter,crm,ops,reviews"
+            echo "NOTION_API_KEY=${RD_OPTION_NOTION_API_KEY}"
+            echo "NOTION_TEST_PAGE_ID=${RD_OPTION_NOTION_TEST_PAGE_ID}"
+            echo "NOTION_STORAGE_PAGE_ID=${RD_OPTION_NOTION_STORAGE_PAGE_ID}"
+            echo "NOTION_CONTEXT_PAGE_ID=${RD_OPTION_NOTION_CONTEXT_PAGE_ID}"
+            echo "BIGQUERY_PROJECT_ID=${RD_OPTION_BQ_PROJECT}"
+            echo "BIGQUERY_PROJECT_ID_2=normalised-417010"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/service_account.json"
+
+            # 🆕 MORNING SUMMARY pour FRIDA
+            echo "MORNING_SUMMARY_ENABLED=${RD_OPTION_MORNING_SUMMARY_ENABLED:-true}"
+            echo "MORNING_SUMMARY_HOUR=${RD_OPTION_MORNING_SUMMARY_HOUR:-8}"
+            echo "MORNING_SUMMARY_MINUTE=${RD_OPTION_MORNING_SUMMARY_MINUTE:-30}"
+            echo "MORNING_SUMMARY_CHANNEL=${RD_OPTION_MORNING_SUMMARY_CHANNEL:-bot-lab}"
+
+            # 🆕 ANALYSES PROACTIVES
+            echo "PROACTIVE_ANALYSIS=true"
+            echo "AUTO_COMPARE=true"
+            echo "MAX_DRILL_DOWNS=3"
+          } >> .env
+
+          echo "=== DEBUG: Contenu du .env pour $BOT_NAME ==="
+          cat .env
+          echo "=============================="
+
+          echo "➡️ Nettoyage de l'ancienne instance de $BOT_NAME uniquement"
+          if [ -f "$PID_FILE" ]; then
+            OLD_PID=$(cat "$PID_FILE")
+            if ps -p "$OLD_PID" > /dev/null 2>&1; then
+              echo "Arrêt de l'ancienne instance (PID: $OLD_PID)"
+              kill -9 "$OLD_PID" || true
+            fi
+            rm -f "$PID_FILE"
+          fi
+          sleep 2
+
+          echo "➡️ Lancement de $BOT_NAME"
+          python app.py &
+          NEW_PID=$!
+          echo "$NEW_PID" > "$PID_FILE"
+          echo "✅ $BOT_NAME démarré avec PID: $NEW_PID"
+
+          # Attendre pour garder le job actif
+          wait $NEW_PID
+  options:
+    - name: git_url
+      defaultValue: "https://github.com/matblissim/MAEL.IA"
+      required: true
+    - name: git_branch
+      defaultValue: "main"
+      required: true
+      description: "Branche pour FRIDA (ex: frida-dev)"
+
+    - name: BQ_PROJECT
+      defaultValue: "teamdata-291012"
+      required: true
+    - name: BQ_LOCATION
+      defaultValue: "europe-west1"
+      required: true
+    - name: BQ_ALLOWED_DATASETS
+      defaultValue: "sales,inter,user,review"
+      required: true
+
+    # GCP Service Account (partagée avec Franck)
+    - name: SERVICE_ACCOUNT_B64
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé GCP service account (base64)"
+      storagePath: "keys/service_account_b64"
+
+    # API Keys PARTAGÉES (même clés qu'avec Franck)
+    - name: OPENAI_API_KEY
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé OpenAI (partagée)"
+      storagePath: "keys/OPENAI_API_KEY"
+
+    - name: ANTHROPIC_API_KEY
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé Anthropic (partagée)"
+      storagePath: "keys/ANTHROPIC_API_KEY"
+
+    # Slack Keys SPÉCIFIQUES à FRIDA
+    - name: SLACK_APP_TOKEN
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé Slack App FRIDA (xapp-...)"
+      storagePath: "keys/FRIDA_SLACK_APP_TOKEN"
+
+    - name: SLACK_BOT_TOKEN
+      required: true
+      secure: true
+      valueExposed: false
+      description: "Clé Slack Bot FRIDA (xoxb-...)"
+      storagePath: "keys/FRIDA_SLACK_BOT_TOKEN"
+
+    # Notion (optionnelles, peuvent être partagées ou différentes)
+    - name: NOTION_API_KEY
+      required: false
+      secure: true
+      valueExposed: false
+      description: "Clé Notion"
+      storagePath: "keys/NOTION_API_KEY"
+
+    - name: NOTION_TEST_PAGE_ID
+      required: false
+      secure: true
+      valueExposed: false
+      storagePath: "keys/NOTION_TEST_PAGE_ID"
+
+    - name: NOTION_STORAGE_PAGE_ID
+      required: false
+      secure: true
+      valueExposed: false
+      storagePath: "keys/NOTION_STORAGE_PAGE_ID"
+
+    - name: NOTION_CONTEXT_PAGE_ID
+      required: false
+      secure: true
+      valueExposed: false
+      storagePath: "keys/NOTION_CONTEXT_PAGE_ID"
+
+    # Morning Summary Configuration
+    - name: MORNING_SUMMARY_ENABLED
+      defaultValue: "true"
+      required: false
+      description: "Activer le bilan matinal (true/false)"
+
+    - name: MORNING_SUMMARY_HOUR
+      defaultValue: "8"
+      required: false
+      description: "Heure du bilan matinal (0-23)"
+
+    - name: MORNING_SUMMARY_MINUTE
+      defaultValue: "30"
+      required: false
+      description: "Minute du bilan matinal (0-59)"
+
+    - name: MORNING_SUMMARY_CHANNEL
+      defaultValue: "bot-lab"
+      required: false
+      description: "Canal Slack pour le bilan matinal"
