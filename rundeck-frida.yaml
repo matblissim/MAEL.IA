@@ -76,8 +76,8 @@ PY
             echo "BIGQUERY_PROJECT_ID_2=${RD_OPTION_BIGQUERY_PROJECT_ID_2:-normalised-417010}"
             echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/service_account.json"
 
-            # 🆕 MORNING SUMMARY pour FRIDA
-            echo "MORNING_SUMMARY_ENABLED=${RD_OPTION_MORNING_SUMMARY_ENABLED:-true}"
+            # 🆕 MORNING SUMMARY pour FRIDA (désactivé par défaut)
+            echo "MORNING_SUMMARY_ENABLED=${RD_OPTION_MORNING_SUMMARY_ENABLED:-false}"
             echo "MORNING_SUMMARY_HOUR=${RD_OPTION_MORNING_SUMMARY_HOUR:-8}"
             echo "MORNING_SUMMARY_MINUTE=${RD_OPTION_MORNING_SUMMARY_MINUTE:-30}"
             echo "MORNING_SUMMARY_CHANNEL=${RD_OPTION_MORNING_SUMMARY_CHANNEL:-bot-lab}"
@@ -211,9 +211,9 @@ PY
 
     # Morning Summary Configuration
     - name: MORNING_SUMMARY_ENABLED
-      defaultValue: "true"
+      defaultValue: "false"
       required: false
-      description: "Activer le bilan matinal (true/false)"
+      description: "Activer le bilan matinal (true/false) - DÉSACTIVÉ par défaut pour FRIDA"
 
     - name: MORNING_SUMMARY_HOUR
       defaultValue: "8"

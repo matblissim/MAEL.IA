@@ -57,10 +57,16 @@ def load_context() -> str:
     """Charge le contexte depuis les fichiers Markdown, DBT et Notion."""
     # Import local pour éviter dépendance circulaire
     from notion_tools import read_notion_page
-    from config import notion_client
+    from config import notion_client, BOT_NAME
 
     parts = []
-    context_file = Path(__file__).with_name("context.md")
+
+    # Charger le bon fichier de contexte selon le bot
+    if BOT_NAME == "FRIDA":
+        context_file = Path(__file__).with_name("context_frida.md")
+    else:
+        context_file = Path(__file__).with_name("context.md")
+
     if context_file.exists():
         parts.append(context_file.read_text(encoding="utf-8"))
 
