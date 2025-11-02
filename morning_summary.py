@@ -12,6 +12,27 @@ def get_yesterday_date():
     return yesterday.strftime('%Y-%m-%d')
 
 
+def format_date_human(date_obj):
+    """
+    Formate une date en format humain : 'Saturday 1st November'
+
+    Args:
+        date_obj: datetime.date object
+
+    Returns:
+        str: formatted date
+    """
+    # Get day with suffix (1st, 2nd, 3rd, 4th, etc.)
+    day = date_obj.day
+    if 4 <= day <= 20 or 24 <= day <= 30:
+        suffix = "th"
+    else:
+        suffix = ["st", "nd", "rd"][day % 10 - 1]
+
+    # Format: "Saturday 1st November"
+    return date_obj.strftime(f'%A {day}{suffix} %B')
+
+
 def get_same_day_last_month():
     """Retourne la même date il y a un mois."""
     yesterday = datetime.now() - timedelta(days=1)
@@ -613,17 +634,16 @@ def get_country_flag(country_code: str) -> str:
 
 def generate_analytical_insight(country_data: dict) -> str:
     """
-    Génère un insight analytique sophistiqué pour un pays.
-    Style "boss de la data analyse" avec comparaison M-1 et N-1 et multi-métriques.
+    Generate sophisticated analytical insight for a country.
+    Data analyst style with YoY and MoM comparisons and multi-metrics.
 
     Args:
-        country_data: dict avec les métriques du pays
+        country_data: dict with country metrics
 
     Returns:
-        str: insight analytique riche avec compensations
+        str: rich analytical insight with compensations
     """
-    country = country_data['country']
-    flag = get_country_flag(country)
+    flag = get_country_flag(country_data['country'])
     nb_acquis = country_data['nb_acquis']
     nb_acquis_m1 = country_data['nb_acquis_m1']
     nb_acquis_n1 = country_data['nb_acquis_n1']
@@ -634,123 +654,122 @@ def generate_analytical_insight(country_data: dict) -> str:
     pct_new_new = country_data['pct_new_new']
     pct_new_new_n1 = country_data['pct_new_new_n1']
 
-    # Calculer var M-1
+    # Calculate MoM variance
     var_m1_pct = 0
     if nb_acquis_m1 > 0:
         var_m1_pct = ((nb_acquis - nb_acquis_m1) / nb_acquis_m1) * 100
     elif nb_acquis > 0:
         var_m1_pct = 100
 
-    # Calculer évolutions des métriques qualité
+    # Calculate quality metrics evolution
     delta_committed = pct_committed - pct_committed_n1
     delta_new_new = pct_new_new - pct_new_new_n1
 
-    # Construire l'insight avec nuances et compensations
+    # Build insight with nuances and compensations
     parts = []
 
-    # 1. Performance globale avec nuances
+    # 1. Overall performance with nuances
     if var_n1_pct >= 20:
-        parts.append(f"forte croissance ({var_n1_pct:+.0f}% N-1)")
+        parts.append(f"strong growth ({var_n1_pct:+.0f}% YoY)")
     elif var_n1_pct >= 10:
-        parts.append(f"belle progression ({var_n1_pct:+.0f}% N-1)")
+        parts.append(f"good progress ({var_n1_pct:+.0f}% YoY)")
     elif var_n1_pct >= 3:
-        parts.append(f"légèrement au-dessus de N-1 ({var_n1_pct:+.0f}%)")
+        parts.append(f"slightly above YoY ({var_n1_pct:+.0f}%)")
     elif var_n1_pct >= -3:
-        parts.append(f"stable vs N-1 ({var_n1_pct:+.0f}%)")
+        parts.append(f"stable vs YoY ({var_n1_pct:+.0f}%)")
     elif var_n1_pct >= -10:
-        parts.append(f"un peu en retrait vs N-1 ({var_n1_pct:+.0f}%)")
+        parts.append(f"slightly below YoY ({var_n1_pct:+.0f}%)")
     elif var_n1_pct >= -20:
-        parts.append(f"recul modéré ({var_n1_pct:+.0f}% N-1)")
+        parts.append(f"moderate decline ({var_n1_pct:+.0f}% YoY)")
     else:
-        parts.append(f"baisse marquée ({var_n1_pct:+.0f}% N-1)")
+        parts.append(f"significant decline ({var_n1_pct:+.0f}% YoY)")
 
-    # 2. Compensations et signaux qualitatifs
+    # 2. Compensations and quality signals
     compensations = []
 
-    # Committed en hausse compense une baisse de volume
+    # Committed increase compensates volume decline
     if var_n1_pct < 0 and delta_committed >= 5:
-        compensations.append(f"mais +{delta_committed:.0f} points committed compense")
+        compensations.append(f"but +{delta_committed:.0f}pts committed compensates")
     elif var_n1_pct < 0 and delta_committed >= 3:
-        compensations.append(f"partiellement compensé par committed (+{delta_committed:.0f} points)")
+        compensations.append(f"partially offset by committed (+{delta_committed:.0f}pts)")
 
-    # Committed en baisse aggrave une situation
+    # Committed decline aggravates situation
     if var_n1_pct < -5 and delta_committed < -3:
-        compensations.append(f"aggravé par baisse committed ({delta_committed:.0f} points)")
+        compensations.append(f"worsened by committed drop ({delta_committed:.0f}pts)")
 
-    # NEW NEW en baisse = signal d'alerte
+    # NEW NEW decline = warning signal
     if delta_new_new < -5 and pct_new_new_n1 > 0:
-        compensations.append(f"attention NEW NEW {delta_new_new:.0f} points")
+        compensations.append(f"⚠️ NEW NEW {delta_new_new:.0f}pts")
 
-    # NEW NEW en hausse = bon signal
+    # NEW NEW increase = good signal
     if delta_new_new >= 5:
-        compensations.append(f"NEW NEW dynamique (+{delta_new_new:.0f} points)")
+        compensations.append(f"dynamic NEW NEW (+{delta_new_new:.0f}pts)")
 
-    # Committed exceptionnellement haut
+    # Exceptionally high committed
     if pct_committed >= 60 and delta_committed >= 3:
-        compensations.append(f"excellente qualité ({pct_committed:.0f}% committed)")
+        compensations.append(f"excellent quality ({pct_committed:.0f}% committed)")
 
-    # 3. Contexte M-1 et cycle
+    # 3. MoM and cycle context
     contexte = []
 
-    # Tendance confirmée ou volatilité
+    # Confirmed trend or volatility
     if abs(var_m1_pct) >= 10:
         if (var_n1_pct > 0 and var_m1_pct > 0) or (var_n1_pct < 0 and var_m1_pct < 0):
-            contexte.append(f"tendance confirmée M-1 ({var_m1_pct:+.0f}%)")
+            contexte.append(f"trend confirmed MoM ({var_m1_pct:+.0f}%)")
         else:
-            # Volatilité = directions opposées N-1 vs M-1
+            # Volatility = opposite directions YoY vs MoM
             if var_n1_pct > 0 and var_m1_pct < 0:
-                contexte.append(f"instable : hausse N-1 mais baisse M-1 ({var_m1_pct:.0f}%)")
+                contexte.append(f"volatile: up YoY but down MoM ({var_m1_pct:.0f}%)")
             elif var_n1_pct < 0 and var_m1_pct > 0:
-                contexte.append(f"instable : baisse N-1 mais hausse M-1 ({var_m1_pct:+.0f}%)")
+                contexte.append(f"volatile: down YoY but up MoM ({var_m1_pct:+.0f}%)")
 
-    # Momentum cycle vs jour
+    # Cycle momentum vs daily
     if abs(cycle_var_pct - var_n1_pct) >= 10:
         if cycle_var_pct > var_n1_pct + 5:
-            contexte.append(f"momentum cycle positif ({cycle_var_pct:+.0f}%)")
+            contexte.append(f"positive cycle momentum ({cycle_var_pct:+.0f}%)")
         elif cycle_var_pct < var_n1_pct - 5:
-            contexte.append(f"cycle en ralentissement ({cycle_var_pct:+.0f}%)")
+            contexte.append(f"cycle slowing down ({cycle_var_pct:+.0f}%)")
 
-    # Assembler l'insight final
-    insight_parts = [parts[0]]  # Toujours la performance globale
+    # Assemble final insight
+    insight_parts = [parts[0]]  # Always global performance
 
-    # Ajouter compensations (priorité haute)
+    # Add compensations (high priority)
     if compensations:
         insight_parts.extend(compensations[:2])  # Max 2 compensations
 
-    # Ajouter contexte si il reste de la place
+    # Add context if room left
     if len(insight_parts) < 3 and contexte:
         insight_parts.extend(contexte[:1])
 
-    insight = f"• {flag} *{country}*: " + ", ".join(insight_parts)
+    insight = f"• {flag} " + ", ".join(insight_parts)
 
     return insight
 
 
 def generate_cycle_insight(country_data: dict) -> str:
     """
-    Génère un insight analytique sur le cycle complet.
-    Focus sur la qualité : committed et mix NEW NEW / REACTIVATION.
+    Generate analytical insight on full cycle performance.
+    Focus on quality: committed and NEW NEW / REACTIVATION mix.
 
     Args:
-        country_data: dict avec les métriques du pays
+        country_data: dict with country metrics
 
     Returns:
-        str: insight analytique centré sur qualité cycle
+        str: analytical insight focused on cycle quality
     """
-    country = country_data['country']
-    flag = get_country_flag(country)
+    flag = get_country_flag(country_data['country'])
 
     # Volumes
     cycle_cumul_ty = country_data['cycle_cumul_ty']
     cycle_cumul_ly = country_data['cycle_cumul_ly']
     cycle_var_pct = country_data['cycle_var_pct']
 
-    # Qualité committed
+    # Committed quality
     pct_cycle_committed_ty = country_data['pct_cycle_committed_ty']
     pct_cycle_committed_ly = country_data['pct_cycle_committed_ly']
     delta_committed = pct_cycle_committed_ty - pct_cycle_committed_ly
 
-    # Mix acquisition
+    # Acquisition mix
     pct_cycle_new_new_ty = country_data['pct_cycle_new_new_ty']
     pct_cycle_new_new_ly = country_data['pct_cycle_new_new_ly']
     delta_new_new = pct_cycle_new_new_ty - pct_cycle_new_new_ly
@@ -761,52 +780,52 @@ def generate_cycle_insight(country_data: dict) -> str:
 
     parts = []
 
-    # 1. Performance volume globale
+    # 1. Overall volume performance
     delta_abs = cycle_cumul_ty - cycle_cumul_ly
     if cycle_var_pct >= 10:
-        parts.append(f"{cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, +{delta_abs:,})")
+        parts.append(f"{cycle_cumul_ty:,} acq. ({cycle_var_pct:+.0f}%, +{delta_abs:,})")
     elif cycle_var_pct >= 3:
-        parts.append(f"{cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%)")
+        parts.append(f"{cycle_cumul_ty:,} acq. ({cycle_var_pct:+.0f}%)")
     elif cycle_var_pct >= -3:
-        parts.append(f"{cycle_cumul_ty:,} acquis (stable {cycle_var_pct:+.0f}%)")
+        parts.append(f"{cycle_cumul_ty:,} acq. (stable {cycle_var_pct:+.0f}%)")
     else:
-        parts.append(f"{cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, {delta_abs:,})")
+        parts.append(f"{cycle_cumul_ty:,} acq. ({cycle_var_pct:+.0f}%, {delta_abs:,})")
 
-    # 2. Analyse committed (prioritaire)
+    # 2. Committed analysis (priority)
     if abs(delta_committed) >= 3:
         if delta_committed > 0:
-            parts.append(f"✅ committed {pct_cycle_committed_ty:.0f}% (+{delta_committed:.0f} points vs N-1)")
+            parts.append(f"✅ committed {pct_cycle_committed_ty:.0f}% (+{delta_committed:.0f}pts vs YoY)")
         else:
-            parts.append(f"⚠️ committed {pct_cycle_committed_ty:.0f}% ({delta_committed:.0f} points vs N-1)")
+            parts.append(f"⚠️ committed {pct_cycle_committed_ty:.0f}% ({delta_committed:.0f}pts vs YoY)")
     elif pct_cycle_committed_ty >= 50:
-        parts.append(f"committed solide ({pct_cycle_committed_ty:.0f}%)")
+        parts.append(f"solid committed ({pct_cycle_committed_ty:.0f}%)")
     elif pct_cycle_committed_ty <= 30:
-        parts.append(f"committed faible ({pct_cycle_committed_ty:.0f}%)")
+        parts.append(f"low committed ({pct_cycle_committed_ty:.0f}%)")
 
-    # 3. Analyse mix NEW NEW vs REACTIVATION
+    # 3. NEW NEW vs REACTIVATION mix analysis
     mix_insights = []
 
     if abs(delta_new_new) >= 5:
         if delta_new_new > 0:
-            mix_insights.append(f"NEW NEW {pct_cycle_new_new_ty:.0f}% (+{delta_new_new:.0f} pts)")
+            mix_insights.append(f"NEW NEW {pct_cycle_new_new_ty:.0f}% (+{delta_new_new:.0f}pts)")
         else:
-            mix_insights.append(f"NEW NEW {pct_cycle_new_new_ty:.0f}% ({delta_new_new:.0f} pts)")
+            mix_insights.append(f"NEW NEW {pct_cycle_new_new_ty:.0f}% ({delta_new_new:.0f}pts)")
 
     if abs(delta_reactivation) >= 5:
         if delta_reactivation > 0:
-            mix_insights.append(f"REACTIV {pct_cycle_reactivation_ty:.0f}% (+{delta_reactivation:.0f} pts)")
+            mix_insights.append(f"REACTIV {pct_cycle_reactivation_ty:.0f}% (+{delta_reactivation:.0f}pts)")
         else:
-            mix_insights.append(f"REACTIV {pct_cycle_reactivation_ty:.0f}% ({delta_reactivation:.0f} pts)")
+            mix_insights.append(f"REACTIV {pct_cycle_reactivation_ty:.0f}% ({delta_reactivation:.0f}pts)")
 
-    # Si pas de changement significatif, donner le mix actuel
+    # If no significant change, show current mix
     if not mix_insights and (pct_cycle_new_new_ty > 0 or pct_cycle_reactivation_ty > 0):
         mix_insights.append(f"mix: {pct_cycle_new_new_ty:.0f}% NEW NEW, {pct_cycle_reactivation_ty:.0f}% REACTIV")
 
     if mix_insights:
         parts.append(", ".join(mix_insights))
 
-    # Construire l'insight final
-    insight = f"• {flag} *{country}*: " + ", ".join(parts[:3])
+    # Build final insight
+    insight = f"• {flag} " + ", ".join(parts[:3])
 
     return insight
 
@@ -872,41 +891,43 @@ def generate_daily_summary():
     crm_data = get_crm_yesterday()
 
     if not country_data:
-        return "⚠️ Impossible de générer le bilan quotidien : données manquantes"
+        return "⚠️ Unable to generate daily report: missing data"
 
-    # Construire le message avec la date réelle des données
-    report_date = str(latest_date) if latest_date else yesterday
+    # Build message with human-readable date
+    if latest_date:
+        from datetime import datetime
+        if isinstance(latest_date, str):
+            latest_date = datetime.strptime(str(latest_date), '%Y-%m-%d').date()
+        report_date = format_date_human(latest_date)
+    else:
+        yesterday_obj = datetime.now() - timedelta(days=1)
+        report_date = format_date_human(yesterday_obj.date())
+
     lines = []
-    lines.append("📊 *Rapport Blissim – Acquisitions du {}*".format(report_date))
+    lines.append(f"📊 *Blissim Acquisition Report – {report_date}*")
     lines.append("")
 
-    # ========== TABLEAU PAR PAYS ==========
-    lines.append("🌍 *1. Acquisitions par pays (hier)*")
+    # ========== COUNTRY BREAKDOWN (BULLET POINTS) ==========
+    lines.append("🌍 *1. Yesterday's Acquisitions by Country*")
+    lines.append("_Note: YoY comparison uses same cycle day (not calendar day)_")
     lines.append("")
 
     if country_data:
-        # En-tête du tableau
-        lines.append("*Pays* │ *Acquis* │ *Var N-1* │ *% Committed* │ *Coupon top*")
-        lines.append("─" * 70)
-
         total_acquis = sum(c['nb_acquis'] for c in country_data)
 
         for country in country_data:
             flag = get_country_flag(country['country'])
-            country_name = country['country'] or 'N/A'
             nb = int(country['nb_acquis'])
             var_n1 = country['var_n1_pct'] or 0
             pct_committed = country['pct_committed'] or 0
-            top_coupon = (country['top_coupon'] or 'N/A')[:15]  # Limiter à 15 chars
+            top_coupon = (country['top_coupon'] or 'N/A')[:20]
 
-            # Emoji pour la variation
+            # Emoji for variation
             emoji_n1 = "📈" if var_n1 > 0 else "📉" if var_n1 < 0 else "➡️"
 
             lines.append(
-                f"{flag} {country_name:4} │ {nb:6,} │ "
-                f"{emoji_n1}{var_n1:+6.1f}% │ "
-                f"{pct_committed:7.1f}% │ "
-                f"{top_coupon}"
+                f"• {flag} *{nb:,}* acquisitions ({emoji_n1} {var_n1:+.1f}% YoY) "
+                f"— {pct_committed:.0f}% committed — Top: {top_coupon}"
             )
 
         lines.append("")
@@ -914,47 +935,25 @@ def generate_daily_summary():
         lines.append("")
 
     # ========== INSIGHTS ==========
-    lines.append("🧠 *2. Analyse data (N-1 et M-1)*")
+    lines.append("🧠 *2. Daily Performance Analysis (YoY & MoM)*")
     lines.append("")
 
-    # Générer 1 insight analytique par pays
+    # Generate 1 analytical insight per country
     if country_data:
         for country in country_data:
             insight = generate_analytical_insight(country)
             lines.append(insight)
     else:
-        lines.append("• Aucune donnée disponible pour l'analyse")
+        lines.append("• No data available for analysis")
 
     lines.append("")
 
-    # ========== TENDANCES DU CYCLE ==========
+    # ========== CYCLE TRENDS ==========
     if country_data:
-        lines.append("📊 *3. Tendances du cycle (depuis le début)*")
-        lines.append("")
-        lines.append("*Pays* │ *Cumul cycle* │ *Cumul N-1* │ *Var N-1*")
-        lines.append("─" * 55)
-
-        for country in country_data:
-            flag = get_country_flag(country['country'])
-            country_name = country['country'] or 'N/A'
-            cumul_ty = country['cycle_cumul_ty']
-            cumul_ly = country['cycle_cumul_ly']
-            cycle_var = country['cycle_var_pct']
-
-            # Emoji pour la variation du cycle
-            emoji_cycle = "📈" if cycle_var > 0 else "📉" if cycle_var < 0 else "➡️"
-
-            lines.append(
-                f"{flag} {country_name:4} │ {cumul_ty:11,} │ {cumul_ly:10,} │ "
-                f"{emoji_cycle}{cycle_var:+6.1f}%"
-            )
-
+        lines.append("📊 *3. Cycle Performance (since cycle start)*")
         lines.append("")
 
-        # Insights sur le cycle
-        lines.append("💡 *Analyse des tendances cycle*")
-        lines.append("")
-
+        # Cycle insights (focused on quality: committed & NEW NEW/REACTIVATION mix)
         for country in country_data:
             cycle_insight = generate_cycle_insight(country)
             lines.append(cycle_insight)
@@ -963,47 +962,40 @@ def generate_daily_summary():
 
     # ========== CRM ==========
     if crm_data:
-        lines.append("✉️ *4. CRM – Emails de la veille*")
+        lines.append("✉️ *4. CRM Campaigns (Yesterday)*")
         lines.append("")
 
-        # Grouper par campagne et calculer les métriques
-        # Assumant que la table a des colonnes comme: campaign, country, sent, delivered, opened, clicked
-        # On affichera les premières campagnes
-
         if len(crm_data) > 0:
-            # Afficher un aperçu des campagnes
-            lines.append("*Campagne* │ *Pays* │ *Envoyés* │ *Ouverts* │ *Clics* │ *Open rate*")
-            lines.append("─" * 65)
-
-            # Prendre les premières campagnes (max 5)
+            # Show top campaigns (max 5)
             for i, campaign in enumerate(crm_data[:5]):
-                # Extraire les données avec les vrais noms de colonnes
-                camp_name = str(campaign.get('name', 'N/A'))[:20]
+                # Extract data with actual column names
+                camp_name = str(campaign.get('name', 'N/A'))[:30]
                 country = str(campaign.get('custom_Country', 'N/A'))
 
-                # delivered = envoyés réellement, targeted = ciblés
+                # delivered = actually sent, targeted = targeted
                 sent = int(campaign.get('delivered', campaign.get('targeted', 0)))
                 opened = int(campaign.get('open_uniques', 0))
                 clicked = int(campaign.get('click_uniques', 0))
 
-                # Calculer open rate
+                # Calculate open rate
                 open_rate = (opened / sent * 100) if sent > 0 else 0
+                click_rate = (clicked / sent * 100) if sent > 0 else 0
 
                 flag = get_country_flag(country)
 
                 lines.append(
-                    f"{camp_name:20} │ {flag} {country:2} │ {sent:7,} │ {opened:6,} │ {clicked:5,} │ {open_rate:5.1f}%"
+                    f"• {flag} *{camp_name}* — {sent:,} sent, {open_rate:.1f}% opened, {click_rate:.1f}% clicked"
                 )
 
             lines.append("")
-            lines.append(f"_Total: {len(crm_data)} campagne(s) envoyée(s) hier_")
+            lines.append(f"_Total: {len(crm_data)} campaign(s) sent yesterday_")
         else:
-            lines.append("_Aucune campagne CRM envoyée hier_")
+            lines.append("_No CRM campaigns sent yesterday_")
 
         lines.append("")
 
     lines.append("─" * 65)
-    lines.append("_Généré par Franck 🤖_")
+    lines.append("_Generated by Franck 🤖_")
 
     return "\n".join(lines)
 
