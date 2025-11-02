@@ -450,4 +450,10 @@ def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> st
             # Juste le JSON de base
             return json_output or "Aucun résultat."
     except Exception as e:
+        import traceback
+        import sys
+        error_msg = f"❌ ERREUR BigQuery dans run_sql: {type(e).__name__}: {e}"
+        print(error_msg, file=sys.stderr, flush=True)
+        tb_str = traceback.format_exc()
+        print(tb_str, file=sys.stderr, flush=True)
         return f"❌ Erreur BigQuery: {str(e)}"
