@@ -98,7 +98,7 @@ def setup_handlers(context: str):
             prompt = strip_own_mention(raw_text, bot_user_id) or "Dis bonjour (très bref) avec une micro-blague."
             logger.info(f"🔵 @mention reçue: {prompt[:200]!r}")
 
-            # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
+            # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
             try:
                 client.reactions_add(
                     channel=channel,
@@ -189,7 +189,7 @@ def setup_handlers(context: str):
                 logger.info(f"⏭️ Thread {thread_ts[:10]}… non actif")
                 return
 
-            # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
+            # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
             try:
                 client.reactions_add(
                     channel=channel,

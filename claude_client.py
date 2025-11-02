@@ -9,7 +9,8 @@ from config import (
     ANTHROPIC_MODEL,
     ANTHROPIC_IN_PRICE,
     ANTHROPIC_OUT_PRICE,
-    MAX_TOOL_CHARS
+    MAX_TOOL_CHARS,
+    BOT_NAME
 )
 from thread_memory import (
     get_thread_history,
@@ -50,8 +51,7 @@ def log_claude_usage(resp, *, label="CLAUDE"):
 def get_system_prompt(context: str = "") -> str:
     """Génère le prompt système pour Claude."""
     base = (
-        "Tu es FRANCK. Réponds en français, brièvement, poli (surtout avec frédéric) et avec humour uniquement si demandé.\n"
-        "Tu es ingénieur (MIT + X 2022), mais toujours moins bon que @mathieu ;).\n"
+        f"Tu t'appelles {BOT_NAME}. Réponds en français.\n"
         "\n"
         "Tu as accès à BigQuery et Notion via des tools.\n"
         "\n"
@@ -154,14 +154,14 @@ def get_system_prompt(context: str = "") -> str:
         "⚠️ DEUX PAGES NOTION DIFFÉRENTES - NE PAS CONFONDRE :\n"
         "\n"
         "1. PAGE DE CONTEXTE (LECTURE/ÉCRITURE) :\n"
-        "   - Page 'context-Franck' : Documentation métier, définitions, procédures\n"
+        f"   - Page 'context-{BOT_NAME}' : Documentation métier, définitions, procédures\n"
         "   - Tu la LIS au démarrage pour comprendre le métier\n"
         "   - ✅ Tu PEUX y écrire avec l'outil append_to_notion_context\n"
         "   - 🎯 Quand on te dit 'ajoute à ton contexte que...' → utilise append_to_notion_context\n"
         "   - Gérée via NOTION_CONTEXT_PAGE_ID\n"
         "\n"
         "2. PAGE DE STOCKAGE (ÉCRITURE) :\n"
-        "   - Page 'Franck Data' : Où tu sauvegardes les analyses\n"
+        f"   - Page '{BOT_NAME} Data' : Où tu sauvegardes les analyses\n"
         "   - ✅ Quand on te dit 'sauve ça dans Notion' → utilise cette page\n"
         "   - ✅ save_analysis_to_notion utilise automatiquement cette page\n"
         "   - Gérée via NOTION_STORAGE_PAGE_ID (écriture)\n"
@@ -175,7 +175,7 @@ def get_system_prompt(context: str = "") -> str:
         "RÈGLE SORTIE LONGUE :\n"
         "- Si le résultat dépasse 50 lignes ou ~1500 caractères :\n"
         "  → ne colle pas le listing complet ;\n"
-        "  quand on te dit ajoute ca a notion, c'est dans la page Franck data tu crees une sous page avec la question, le thread et les infos, voire un résumé data\n"
+        f"  quand on te dit ajoute ca a notion, c'est dans la page {BOT_NAME} data tu crees une sous page avec la question, le thread et les infos, voire un résumé data\n"
         "  → donne un résumé (compte + colonnes clés) et la requête SQL ;\n"
         "Après chaque tool_use, produis une conclusion synthétique (1–3 lignes) avec un pourcentage clair et la population de référence.\n"
         "\n"
