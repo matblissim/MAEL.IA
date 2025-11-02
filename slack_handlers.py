@@ -169,8 +169,11 @@ def setup_handlers(context: str):
             except:
                 pass
 
-    @app.event("message")
-    def on_message(event, client, logger):
+    # Handler on_message DÉSACTIVÉ - cause des conflits entre Franck et FRIDA
+    # Utiliser uniquement @mention pour appeler les bots
+    # @app.event("message")
+    def on_message_DISABLED(event, client, logger):
+        pass
         try:
             # Filtrage basique
             if event.get("subtype"):
