@@ -323,9 +323,15 @@ def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> st
         format_proactive_analysis
     )
 
-    client = bq_client_normalized if project == "normalized" else bq_client
-    if not client:
+    # TOUJOURS créer un client frais au lieu d'utiliser le global (qui devient stale)
+    from google.cloud import bigquery
+    project_id = os.getenv("BIGQUERY_PROJECT_ID_2" if project == "normalized" else "BIGQUERY_PROJECT_ID")
+    if not project_id:
         return "❌ BigQuery non configuré."
+
+    # Client frais = connexion fraîche = pas de broken pipe
+    client = bigquery.Client(project=project_id)
+
     try:
         add_query_to_thread(thread_ts, query)
         q = _enforce_limit(query)
