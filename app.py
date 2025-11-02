@@ -2,7 +2,9 @@
 """Point d'entrée principal de l'application MAEL.IA (bot Slack)."""
 
 import os
+import sys
 import time
+import logging
 import threading
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -12,16 +14,36 @@ from slack_handlers import setup_handlers
 from morning_summary import send_morning_summary
 from morning_summary_handlers import register_morning_summary_handlers
 
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
 
 def keep_alive():
     """Thread qui maintient la connexion Socket Mode active avec un ping périodique."""
+    ping_interval = 120  # Ping toutes les 2 minutes (réduit de 5 min)
+    consecutive_failures = 0
+    max_failures = 3
+
     while True:
-        time.sleep(300)  # Ping toutes les 5 minutes
+        time.sleep(ping_interval)
         try:
-            app.client.auth_test()
-            print("🔄 Keep-alive ping OK")
+            result = app.client.auth_test()
+            consecutive_failures = 0  # Reset le compteur en cas de succès
+            logger.info(f"🔄 Keep-alive ping OK - bot_user={result.get('user')} team={result.get('team')}")
         except Exception as e:
-            print(f"⚠️ Keep-alive ping error: {e}")
+            consecutive_failures += 1
+            logger.warning(f"⚠️ Keep-alive ping error ({consecutive_failures}/{max_failures}): {e}")
+
+            # Si trop d'échecs consécutifs, logger une alerte
+            if consecutive_failures >= max_failures:
+                logger.error(f"🚨 ALERTE: {max_failures} échecs consécutifs du keep-alive ! La connexion pourrait être perdue.")
+                # Reset le compteur pour éviter de spammer les logs
+                consecutive_failures = 0
 
 
 def main():
@@ -109,10 +131,22 @@ def main():
     # Démarrage du thread keep-alive pour éviter le broken pipe
     keep_alive_thread = threading.Thread(target=keep_alive, daemon=True, name=f"{BOT_NAME}-KeepAlive")
     keep_alive_thread.start()
-    print(f"🔄 Keep-alive activé (ping toutes les 5 min)\n")
+    logger.info(f"🔄 Keep-alive activé (ping toutes les 2 min)")
 
-    # Démarrage du bot en Socket Mode
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+    # Démarrage du bot en Socket Mode avec gestion d'erreur
+    logger.info("🚀 Démarrage du Socket Mode Handler...")
+    try:
+        handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
+        logger.info("✅ Socket Mode Handler initialisé")
+        logger.info(f"🎧 {BOT_NAME} écoute les messages Slack...")
+        handler.start()
+    except KeyboardInterrupt:
+        logger.info("⏹️ Arrêt du bot (Ctrl+C)")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"❌ Erreur critique au démarrage du Socket Mode: {e}")
+        logger.exception(e)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
