@@ -191,6 +191,17 @@ def setup_handlers(context: str):
                 logger.info("⏭️ Message ignoré (c'est moi)")
                 return
 
+            # Ignorer les messages qui mentionnent un autre bot
+            # Pattern: <@U12345> pour les mentions
+            import re
+            bot_mentions = re.findall(r'<@(U[A-Z0-9]+)>', text)
+            if bot_mentions:
+                my_bot_id = get_bot_user_id()
+                # Si le message mentionne un bot et que ce n'est pas nous, ignorer
+                if my_bot_id not in bot_mentions:
+                    logger.info(f"⏭️ Message ignoré (mentionne un autre bot: {bot_mentions})")
+                    return
+
             logger.info(f"✅ Message accepté dans thread {thread_ts[:10]}… : '{text[:100]}'")
 
             # Répondre à TOUS les messages dans les threads
