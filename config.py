@@ -22,6 +22,9 @@ for var in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "ANTHROPIC_API_KEY"):
     if not os.getenv(var):
         raise RuntimeError(f"Variable manquante: {var}")
 
+# ---------- Nom du bot (configurable) ----------
+BOT_NAME = os.getenv("BOT_NAME", "Franck")
+
 # ---------- Constantes coût & garde-fous ----------
 ANTHROPIC_MODEL     = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 ANTHROPIC_IN_PRICE  = float(os.getenv("ANTHROPIC_PRICE_IN",  "0.003"))   # $ / 1k tokens (input)
