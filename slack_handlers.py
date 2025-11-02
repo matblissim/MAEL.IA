@@ -169,8 +169,11 @@ def setup_handlers(context: str):
             except:
                 pass
 
-    @app.event("message")
-    def on_message(event, client, logger):
+    # DÉSACTIVÉ TEMPORAIREMENT - Slack semble arrêter d'envoyer les événements "message" après inactivité
+    # Utiliser @mention à la place pour être sûr
+    # @app.event("message")
+    def on_message_DISABLED(event, client, logger):
+        return  # Désactivé
         try:
             # Log AVANT tout filtrage pour déboguer
             logger.info(f"📨 Message reçu : '{event.get('text', '')[:120]}…' channel={event.get('channel')} thread={event.get('thread_ts', 'NO_THREAD')} subtype={event.get('subtype', 'NONE')}")
