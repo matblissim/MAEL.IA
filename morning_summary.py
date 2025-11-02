@@ -250,11 +250,21 @@ def format_metric_line(label, current, previous, is_percentage=False):
 
 def get_cycle_cumul():
     """
-    Calcule le cumul du cycle depuis le début jusqu'à hier.
+    Calcule le cumul du cycle depuis le début jusqu'à hier avec métriques qualité.
     Compare avec la même période l'année dernière.
 
+    Focus sur:
+    - Volumes totaux
+    - % committed
+    - % NEW NEW vs REACTIVATION
+
     Returns:
-        dict {country: {'cycle_cumul_ty': int, 'cycle_cumul_ly': int}}
+        dict {country: {
+            'cycle_cumul_ty': int, 'cycle_cumul_ly': int,
+            'cycle_committed_ty': int, 'cycle_committed_ly': int,
+            'cycle_new_new_ty': int, 'cycle_new_new_ly': int,
+            'cycle_reactivation_ty': int, 'cycle_reactivation_ly': int
+        }}
     """
     if not bq_client:
         return {}
@@ -277,17 +287,59 @@ def get_cycle_cumul():
     SELECT
       b.dw_country_code AS country,
 
-      -- Cumul actuel (depuis début cycle jusqu'à hier)
+      -- Cumul total actuel (depuis début cycle jusqu'à hier)
       COUNTIF(
         b.diff_current_box = 0
         AND b.day_in_cycle <= ymc.max_day_in_cycle
       ) AS cycle_cumul_ty,
 
-      -- Cumul N-1 (même période l'année dernière)
+      -- Cumul total N-1 (même période l'année dernière)
       COUNTIF(
         b.diff_current_box = -11
         AND b.day_in_cycle <= ymc.max_day_in_cycle
-      ) AS cycle_cumul_ly
+      ) AS cycle_cumul_ly,
+
+      -- Cumul COMMITTED actuel
+      COUNTIF(
+        b.diff_current_box = 0
+        AND b.day_in_cycle <= ymc.max_day_in_cycle
+        AND b.cannot_suspend = 1
+      ) AS cycle_committed_ty,
+
+      -- Cumul COMMITTED N-1
+      COUNTIF(
+        b.diff_current_box = -11
+        AND b.day_in_cycle <= ymc.max_day_in_cycle
+        AND b.cannot_suspend = 1
+      ) AS cycle_committed_ly,
+
+      -- Cumul NEW NEW actuel
+      COUNTIF(
+        b.diff_current_box = 0
+        AND b.day_in_cycle <= ymc.max_day_in_cycle
+        AND b.acquis_status_lvl2 = 'NEW NEW'
+      ) AS cycle_new_new_ty,
+
+      -- Cumul NEW NEW N-1
+      COUNTIF(
+        b.diff_current_box = -11
+        AND b.day_in_cycle <= ymc.max_day_in_cycle
+        AND b.acquis_status_lvl2 = 'NEW NEW'
+      ) AS cycle_new_new_ly,
+
+      -- Cumul REACTIVATION actuel
+      COUNTIF(
+        b.diff_current_box = 0
+        AND b.day_in_cycle <= ymc.max_day_in_cycle
+        AND b.acquis_status_lvl2 = 'REACTIVATION'
+      ) AS cycle_reactivation_ty,
+
+      -- Cumul REACTIVATION N-1
+      COUNTIF(
+        b.diff_current_box = -11
+        AND b.day_in_cycle <= ymc.max_day_in_cycle
+        AND b.acquis_status_lvl2 = 'REACTIVATION'
+      ) AS cycle_reactivation_ly
 
     FROM `teamdata-291012.sales.box_sales` b
     JOIN yesterday_max_cycle ymc
@@ -308,7 +360,13 @@ def get_cycle_cumul():
         for row in rows:
             result[row['country']] = {
                 'cycle_cumul_ty': row['cycle_cumul_ty'],
-                'cycle_cumul_ly': row['cycle_cumul_ly']
+                'cycle_cumul_ly': row['cycle_cumul_ly'],
+                'cycle_committed_ty': row['cycle_committed_ty'],
+                'cycle_committed_ly': row['cycle_committed_ly'],
+                'cycle_new_new_ty': row['cycle_new_new_ty'],
+                'cycle_new_new_ly': row['cycle_new_new_ly'],
+                'cycle_reactivation_ty': row['cycle_reactivation_ty'],
+                'cycle_reactivation_ly': row['cycle_reactivation_ly']
             }
         return result
     except Exception as e:
@@ -462,8 +520,15 @@ def get_country_acquisitions_with_comparisons():
                 pct_new_new_n1 = (stats['year_prec_new_new'] / stats['year_prec_total']) * 100 if stats['year_prec_total'] > 0 else 0
 
                 # Cumul du cycle
-                cycle_cumul_ty = cycle_cumul_data.get(country, {}).get('cycle_cumul_ty', 0)
-                cycle_cumul_ly = cycle_cumul_data.get(country, {}).get('cycle_cumul_ly', 0)
+                cycle_data = cycle_cumul_data.get(country, {})
+                cycle_cumul_ty = cycle_data.get('cycle_cumul_ty', 0)
+                cycle_cumul_ly = cycle_data.get('cycle_cumul_ly', 0)
+                cycle_committed_ty = cycle_data.get('cycle_committed_ty', 0)
+                cycle_committed_ly = cycle_data.get('cycle_committed_ly', 0)
+                cycle_new_new_ty = cycle_data.get('cycle_new_new_ty', 0)
+                cycle_new_new_ly = cycle_data.get('cycle_new_new_ly', 0)
+                cycle_reactivation_ty = cycle_data.get('cycle_reactivation_ty', 0)
+                cycle_reactivation_ly = cycle_data.get('cycle_reactivation_ly', 0)
 
                 # Variance du cumul
                 cycle_var_pct = 0
@@ -471,6 +536,18 @@ def get_country_acquisitions_with_comparisons():
                     cycle_var_pct = ((cycle_cumul_ty - cycle_cumul_ly) / cycle_cumul_ly) * 100
                 elif cycle_cumul_ty > 0:
                     cycle_var_pct = 100
+
+                # % committed sur le cycle
+                pct_cycle_committed_ty = (cycle_committed_ty / cycle_cumul_ty * 100) if cycle_cumul_ty > 0 else 0
+                pct_cycle_committed_ly = (cycle_committed_ly / cycle_cumul_ly * 100) if cycle_cumul_ly > 0 else 0
+
+                # % NEW NEW sur le cycle
+                pct_cycle_new_new_ty = (cycle_new_new_ty / cycle_cumul_ty * 100) if cycle_cumul_ty > 0 else 0
+                pct_cycle_new_new_ly = (cycle_new_new_ly / cycle_cumul_ly * 100) if cycle_cumul_ly > 0 else 0
+
+                # % REACTIVATION sur le cycle
+                pct_cycle_reactivation_ty = (cycle_reactivation_ty / cycle_cumul_ty * 100) if cycle_cumul_ty > 0 else 0
+                pct_cycle_reactivation_ly = (cycle_reactivation_ly / cycle_cumul_ly * 100) if cycle_cumul_ly > 0 else 0
 
                 aggregated.append({
                     'country': country,
@@ -485,7 +562,19 @@ def get_country_acquisitions_with_comparisons():
                     'var_n1_pct': round(var_n1_pct, 1),
                     'cycle_cumul_ty': cycle_cumul_ty,
                     'cycle_cumul_ly': cycle_cumul_ly,
-                    'cycle_var_pct': round(cycle_var_pct, 1)
+                    'cycle_var_pct': round(cycle_var_pct, 1),
+                    'cycle_committed_ty': cycle_committed_ty,
+                    'cycle_committed_ly': cycle_committed_ly,
+                    'pct_cycle_committed_ty': round(pct_cycle_committed_ty, 1),
+                    'pct_cycle_committed_ly': round(pct_cycle_committed_ly, 1),
+                    'cycle_new_new_ty': cycle_new_new_ty,
+                    'cycle_new_new_ly': cycle_new_new_ly,
+                    'pct_cycle_new_new_ty': round(pct_cycle_new_new_ty, 1),
+                    'pct_cycle_new_new_ly': round(pct_cycle_new_new_ly, 1),
+                    'cycle_reactivation_ty': cycle_reactivation_ty,
+                    'cycle_reactivation_ly': cycle_reactivation_ly,
+                    'pct_cycle_reactivation_ty': round(pct_cycle_reactivation_ty, 1),
+                    'pct_cycle_reactivation_ly': round(pct_cycle_reactivation_ly, 1)
                 })
 
         # Trier par nb_acquis DESC
@@ -639,123 +728,85 @@ def generate_analytical_insight(country_data: dict) -> str:
 
 def generate_cycle_insight(country_data: dict) -> str:
     """
-    Génère un insight analytique approfondi pour les tendances du cycle complet.
-    Analyse multi-dimensionnelle de la performance cumulée avec signaux business.
+    Génère un insight analytique sur le cycle complet.
+    Focus sur la qualité : committed et mix NEW NEW / REACTIVATION.
 
     Args:
         country_data: dict avec les métriques du pays
 
     Returns:
-        str: insight analytique riche sur le cycle
+        str: insight analytique centré sur qualité cycle
     """
     country = country_data['country']
     flag = get_country_flag(country)
+
+    # Volumes
     cycle_cumul_ty = country_data['cycle_cumul_ty']
     cycle_cumul_ly = country_data['cycle_cumul_ly']
     cycle_var_pct = country_data['cycle_var_pct']
-    var_n1_pct = country_data['var_n1_pct']  # Performance d'hier
-    nb_acquis = country_data['nb_acquis']
-    nb_acquis_n1 = country_data['nb_acquis_n1']
-    pct_committed = country_data['pct_committed']
-    pct_committed_n1 = country_data['pct_committed_n1']
+
+    # Qualité committed
+    pct_cycle_committed_ty = country_data['pct_cycle_committed_ty']
+    pct_cycle_committed_ly = country_data['pct_cycle_committed_ly']
+    delta_committed = pct_cycle_committed_ty - pct_cycle_committed_ly
+
+    # Mix acquisition
+    pct_cycle_new_new_ty = country_data['pct_cycle_new_new_ty']
+    pct_cycle_new_new_ly = country_data['pct_cycle_new_new_ly']
+    delta_new_new = pct_cycle_new_new_ty - pct_cycle_new_new_ly
+
+    pct_cycle_reactivation_ty = country_data['pct_cycle_reactivation_ty']
+    pct_cycle_reactivation_ly = country_data['pct_cycle_reactivation_ly']
+    delta_reactivation = pct_cycle_reactivation_ty - pct_cycle_reactivation_ly
 
     parts = []
 
-    # 1. Performance globale du cycle avec contexte quantitatif
+    # 1. Performance volume globale
     delta_abs = cycle_cumul_ty - cycle_cumul_ly
-
-    if cycle_var_pct >= 15:
-        parts.append(f"cycle très performant : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, +{delta_abs:,} vs N-1)")
-    elif cycle_var_pct >= 8:
-        parts.append(f"cycle en croissance : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, +{delta_abs:,})")
+    if cycle_var_pct >= 10:
+        parts.append(f"{cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, +{delta_abs:,})")
     elif cycle_var_pct >= 3:
-        parts.append(f"cycle légèrement positif : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%)")
+        parts.append(f"{cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%)")
     elif cycle_var_pct >= -3:
-        parts.append(f"cycle stable : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, écart {delta_abs:+,})")
-    elif cycle_var_pct >= -8:
-        parts.append(f"cycle en retrait : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, {delta_abs:,})")
-    elif cycle_var_pct >= -15:
-        parts.append(f"cycle préoccupant : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, {delta_abs:,})")
+        parts.append(f"{cycle_cumul_ty:,} acquis (stable {cycle_var_pct:+.0f}%)")
     else:
-        parts.append(f"cycle critique : {cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, {delta_abs:,} vs N-1)")
+        parts.append(f"{cycle_cumul_ty:,} acquis ({cycle_var_pct:+.0f}%, {delta_abs:,})")
 
-    # 2. Analyse de la dynamique récente (divergence jour vs cycle)
-    divergence = var_n1_pct - cycle_var_pct
-
-    dynamique_parts = []
-
-    if abs(divergence) >= 20:
-        if divergence > 0:
-            dynamique_parts.append(f"forte accélération en cours (hier {var_n1_pct:+.0f}% vs cycle {cycle_var_pct:+.0f}%)")
-        else:
-            dynamique_parts.append(f"⚠️ décrochage récent majeur (hier {var_n1_pct:+.0f}% vs cycle {cycle_var_pct:+.0f}%)")
-    elif abs(divergence) >= 10:
-        if divergence > 0:
-            dynamique_parts.append(f"accélération récente (hier {var_n1_pct:+.0f}%)")
-        else:
-            dynamique_parts.append(f"ralentissement notable (hier {var_n1_pct:+.0f}%)")
-    elif abs(divergence) >= 5:
-        if divergence > 0:
-            dynamique_parts.append(f"légère amélioration récente")
-        else:
-            dynamique_parts.append(f"léger tassement récent")
-
-    # 3. Signaux qualitatifs et business
-    signaux = []
-
-    # Qualité committed sur le cycle
-    delta_committed = pct_committed - pct_committed_n1
-    if abs(delta_committed) >= 5:
+    # 2. Analyse committed (prioritaire)
+    if abs(delta_committed) >= 3:
         if delta_committed > 0:
-            signaux.append(f"qualité en hausse (+{delta_committed:.0f} points committed)")
+            parts.append(f"✅ committed {pct_cycle_committed_ty:.0f}% (+{delta_committed:.0f} points vs N-1)")
         else:
-            signaux.append(f"⚠️ érosion qualité ({delta_committed:.0f} points committed)")
+            parts.append(f"⚠️ committed {pct_cycle_committed_ty:.0f}% ({delta_committed:.0f} points vs N-1)")
+    elif pct_cycle_committed_ty >= 50:
+        parts.append(f"committed solide ({pct_cycle_committed_ty:.0f}%)")
+    elif pct_cycle_committed_ty <= 30:
+        parts.append(f"committed faible ({pct_cycle_committed_ty:.0f}%)")
 
-    # Analyse de la régularité (hier vs moyenne implicite du cycle)
-    # Si hier représente une portion anormale du cycle
-    if cycle_cumul_ty > 0:
-        contrib_hier = (nb_acquis / cycle_cumul_ty) * 100
-        contrib_hier_n1 = (nb_acquis_n1 / cycle_cumul_ly) * 100 if cycle_cumul_ly > 0 else 0
+    # 3. Analyse mix NEW NEW vs REACTIVATION
+    mix_insights = []
 
-        # Détection si hier est un jour atypique
-        if contrib_hier >= 10:  # Plus de 10% du cycle en une journée = pic
-            signaux.append(f"journée exceptionnelle (représente {contrib_hier:.1f}% du cycle)")
-        elif cycle_cumul_ly > 0 and abs(contrib_hier - contrib_hier_n1) >= 3:
-            if contrib_hier > contrib_hier_n1:
-                signaux.append(f"contribution croissante ({contrib_hier:.1f}% vs {contrib_hier_n1:.1f}% N-1)")
+    if abs(delta_new_new) >= 5:
+        if delta_new_new > 0:
+            mix_insights.append(f"NEW NEW {pct_cycle_new_new_ty:.0f}% (+{delta_new_new:.0f} pts)")
+        else:
+            mix_insights.append(f"NEW NEW {pct_cycle_new_new_ty:.0f}% ({delta_new_new:.0f} pts)")
 
-    # 4. Projection et recommandation (si tendance marquée)
-    recommandations = []
+    if abs(delta_reactivation) >= 5:
+        if delta_reactivation > 0:
+            mix_insights.append(f"REACTIV {pct_cycle_reactivation_ty:.0f}% (+{delta_reactivation:.0f} pts)")
+        else:
+            mix_insights.append(f"REACTIV {pct_cycle_reactivation_ty:.0f}% ({delta_reactivation:.0f} pts)")
 
-    if cycle_var_pct <= -10 and var_n1_pct <= -10:
-        recommandations.append("→ action requise : inverser la tendance")
-    elif cycle_var_pct >= 15 and var_n1_pct >= 15:
-        recommandations.append("→ capitaliser sur le momentum")
-    elif cycle_var_pct < -5 and divergence >= 15:
-        recommandations.append("→ surveiller si rebond se confirme")
-    elif cycle_var_pct >= 10 and divergence <= -15:
-        recommandations.append("→ attention au ralentissement récent")
+    # Si pas de changement significatif, donner le mix actuel
+    if not mix_insights and (pct_cycle_new_new_ty > 0 or pct_cycle_reactivation_ty > 0):
+        mix_insights.append(f"mix: {pct_cycle_new_new_ty:.0f}% NEW NEW, {pct_cycle_reactivation_ty:.0f}% REACTIV")
 
-    # Assembler l'insight complet
-    insight_parts = [parts[0]]  # Performance globale
+    if mix_insights:
+        parts.append(", ".join(mix_insights))
 
-    if dynamique_parts:
-        insight_parts.extend(dynamique_parts[:1])
-
-    if signaux:
-        insight_parts.extend(signaux[:1])
-
-    if recommandations:
-        insight_parts.extend(recommandations[:1])
-
-    # Si pas assez riche, ajouter volume et contexte
-    if len(insight_parts) < 3:
-        if cycle_cumul_ty >= 10000:
-            insight_parts.append(f"volume majeur pour le marché")
-        elif cycle_cumul_ty <= 100 and cycle_cumul_ly > 0:
-            insight_parts.append(f"marché de niche")
-
-    insight = f"• {flag} *{country}*: " + ", ".join(insight_parts[:4])  # Max 4 pour plus de profondeur
+    # Construire l'insight final
+    insight = f"• {flag} *{country}*: " + ", ".join(parts[:3])
 
     return insight
 
