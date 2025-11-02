@@ -80,31 +80,40 @@ def get_bot_user_id():
 
 
 def bot_is_in_thread(channel: str, thread_ts: str) -> bool:
-    """Vérifie si le bot a déjà participé à ce thread (avec cache)."""
+    """Vérifie si le bot a déjà participé à ce thread (avec cache tolérant aux erreurs)."""
     global _thread_cache
 
     # Vérifier le cache
     current_time = time.time()
+    cached_data = None
     if thread_ts in _thread_cache:
         cached_result, cached_time = _thread_cache[thread_ts]
-        if current_time - cached_time < THREAD_CACHE_TTL:
-            logger.debug(f"💾 Cache hit pour thread {thread_ts[:10]}... -> {cached_result}")
+        cache_age = current_time - cached_time
+
+        if cache_age < THREAD_CACHE_TTL:
+            logger.debug(f"💾 Cache hit pour thread {thread_ts[:10]}... -> {cached_result} (age: {cache_age:.0f}s)")
             return cached_result
         else:
-            # Cache expiré, on le supprime
-            del _thread_cache[thread_ts]
+            # Cache expiré mais on le garde pour fallback en cas d'erreur
+            cached_data = (cached_result, cached_time)
+            logger.debug(f"💾 Cache expiré pour thread {thread_ts[:10]}... (age: {cache_age:.0f}s) - Rafraîchissement nécessaire")
 
     try:
         bot_id = get_bot_user_id()
         if not bot_id:
             logger.warning("⚠️ Impossible de récupérer l'ID du bot")
+            # Utiliser le cache expiré si disponible
+            if cached_data:
+                logger.warning(f"⚠️ Utilisation du cache expiré (fallback) -> {cached_data[0]}")
+                return cached_data[0]
             return False
 
         # Récupérer les réponses du thread
+        logger.debug(f"🔍 Appel API conversations_replies pour thread {thread_ts[:10]}...")
         result = app.client.conversations_replies(
             channel=channel,
             ts=thread_ts,
-            limit=100
+            limit=200  # Augmenté de 100 à 200 pour les threads longs
         )
 
         messages = result.get("messages", [])
@@ -115,30 +124,40 @@ def bot_is_in_thread(channel: str, thread_ts: str) -> bool:
         for msg in messages:
             if msg.get("user") == bot_id:
                 is_in_thread = True
+                logger.debug(f"✅ Bot trouvé dans le thread à ts={msg.get('ts', 'unknown')[:10]}...")
                 break
 
         # Mettre en cache le résultat
         _thread_cache[thread_ts] = (is_in_thread, current_time)
 
         if is_in_thread:
-            logger.info(f"✅ Bot détecté dans thread {thread_ts[:10]}...")
+            logger.info(f"✅ Bot détecté dans thread {thread_ts[:10]}... (mis en cache)")
         else:
-            logger.debug(f"⏭️ Bot non détecté dans thread {thread_ts[:10]}...")
+            logger.debug(f"⏭️ Bot non détecté dans thread {thread_ts[:10]}... (mis en cache)")
 
         return is_in_thread
 
     except Exception as e:
-        logger.error(f"❌ Erreur lors de la vérification du thread: {e}")
-        # En cas d'erreur, on suppose que le bot n'est pas dans le thread
+        logger.error(f"❌ Erreur lors de la vérification du thread {thread_ts[:10]}...: {e}")
+
+        # En cas d'erreur, utiliser le cache expiré si disponible
+        if cached_data:
+            logger.warning(f"⚠️ Erreur API - Utilisation du cache expiré (fallback) -> {cached_data[0]}")
+            return cached_data[0]
+
+        # Sinon, supposer que le bot n'est pas dans le thread
+        logger.warning(f"⚠️ Erreur API et pas de cache - Considère que le bot n'est PAS dans le thread")
         return False
 
 
 def invalidate_thread_cache(thread_ts: str):
-    """Invalide le cache pour un thread donné (appelé après que le bot poste)."""
+    """Met à jour le cache pour indiquer que le bot est dans le thread (appelé après que le bot poste)."""
     global _thread_cache
-    if thread_ts in _thread_cache:
-        del _thread_cache[thread_ts]
-        logger.debug(f"🗑️ Cache invalidé pour thread {thread_ts[:10]}...")
+    current_time = time.time()
+    # Au lieu de supprimer le cache, on le met à True car on vient de poster
+    # Cela évite la race condition où l'API Slack n'a pas encore le message du bot
+    _thread_cache[thread_ts] = (True, current_time)
+    logger.debug(f"✅ Cache mis à jour pour thread {thread_ts[:10]}... -> True (bot vient de poster)")
 
 
 def strip_own_mention(text: str, bot_user_id: Optional[str]) -> str:
@@ -254,22 +273,29 @@ def setup_handlers(context: str):
     @app.event("message")
     def on_message(event, client, logger):
         try:
+            # Déduplication des événements
+            event_id = event.get("event_ts") or event.get("ts")  # Utiliser event_ts ou ts comme ID unique
+            if event_id and seen_events.seen(event_id):
+                logger.debug(f"⏭️ Message dédupliqué (event_id={event_id})")
+                return
+
             # Log détaillé du message reçu
             text_preview = event.get('text', '')[:120] if event.get('text') else ''
             channel_id = event.get('channel', 'unknown')
             thread_ts = event.get('thread_ts', 'NO_THREAD')
             msg_ts = event.get('ts', 'unknown')
+            user = event.get("user", "unknown")
 
-            logger.info(f"📨 Message reçu: '{text_preview}...' | channel={channel_id} | thread={thread_ts} | ts={msg_ts}")
+            logger.info(f"📨 Message reçu: '{text_preview}...' | channel={channel_id} | thread={thread_ts} | ts={msg_ts} | user={user}")
 
             # Ignorer les messages avec subtype (éditions, suppressions, etc.)
             if event.get("subtype"):
-                logger.debug(f"⏭️ Message ignoré (subtype={event.get('subtype')})")
+                logger.info(f"⏭️ Message ignoré (subtype={event.get('subtype')}) - Ceci est normal pour les messages édités/supprimés")
                 return
 
             # Ignorer les messages qui ne sont pas dans un thread
             if "thread_ts" not in event:
-                logger.debug("⏭️ Message ignoré (pas dans un thread)")
+                logger.debug("⏭️ Message ignoré (pas dans un thread) - Ceci est normal pour les messages directs au channel")
                 return
 
             thread_ts = event["thread_ts"]
@@ -278,16 +304,20 @@ def setup_handlers(context: str):
             text = (event.get("text") or "").strip()
 
             # Ignorer les messages du bot lui-même
-            if user == get_bot_user_id():
-                logger.debug("⏭️ Message ignoré (envoyé par le bot)")
+            bot_id = get_bot_user_id()
+            if user == bot_id:
+                logger.debug(f"⏭️ Message ignoré (envoyé par le bot {bot_id})")
                 return
 
             # Vérifier si le bot est dans ce thread
-            if not bot_is_in_thread(channel, thread_ts):
+            logger.debug(f"🔍 Vérification si le bot est dans le thread {thread_ts[:10]}...")
+            is_in_thread = bot_is_in_thread(channel, thread_ts)
+
+            if not is_in_thread:
                 logger.info(f"⏭️ Thread {thread_ts[:10]}... ignoré (bot pas actif dans ce thread)")
                 return
 
-            logger.info(f"🎯 Bot actif dans thread {thread_ts[:10]}... - Traitement du message")
+            logger.info(f"🎯 Bot actif dans thread {thread_ts[:10]}... - Traitement du message '{text[:50]}...'")
 
             # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
             try:
