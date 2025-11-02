@@ -1081,13 +1081,13 @@ def generate_daily_summary_blocks():
 
     # Total summary
     total_acquis = sum(c['nb_acquis'] for c in country_data)
-    total_var_avg = sum(c['var_n1_pct'] for c in country_data) / len(country_data) if country_data else 0
+    total_cycle_cumul = sum(c['cycle_cumul_ty'] for c in country_data)
 
     blocks.append({
         'type': 'section',
         'text': {
             'type': 'mrkdwn',
-            'text': f'*Total Acquisitions:* {total_acquis:,}\n*Avg YoY Change:* {total_var_avg:+.1f}%'
+            'text': f'*Yesterday Total:* {total_acquis:,} acquisitions\n*Cycle Cumulative:* {total_cycle_cumul:,} acquisitions'
         }
     })
 
