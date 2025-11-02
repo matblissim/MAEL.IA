@@ -434,36 +434,30 @@ def get_country_acquisitions_with_comparisons():
       -- acquisitions d'HIER pour la box de ce mois-ci (cycle-based YoY)
       COUNTIF(
         b.diff_current_box = 0
+        AND b.month = yc.month
         AND DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
       ) AS nb_acquis_actuel,
 
-      -- MoM: même date calendaire il y a un mois (pas cycle-based)
+      -- MoM: même day_in_cycle du mois précédent (diff_current_box = -1)
       COUNTIF(
-        DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)
+        b.diff_current_box = -1
       ) AS nb_acquis_mois_prec,
 
-      -- YoY: même jour de cycle mais sur la box de l'année précédente (cycle-based)
+      -- YoY: même (month, day_in_cycle) de l'année précédente (diff_current_box = -11)
       COUNTIF(
         b.diff_current_box = -11
+        AND b.month = yc.month
       ) AS nb_acquis_annee_prec,
 
       -- variations
-      SAFE_DIVIDE(COUNTIF(b.diff_current_box = 0), NULLIF(COUNTIF(b.diff_current_box = -11),0)) - 1 AS var_vs_annee_prec
+      SAFE_DIVIDE(COUNTIF(b.diff_current_box = 0 AND b.month = yc.month), NULLIF(COUNTIF(b.diff_current_box = -11 AND b.month = yc.month),0)) - 1 AS var_vs_annee_prec
 
     FROM `teamdata-291012.sales.box_sales` b
-    JOIN yesterday_cycle yc
-      ON b.month = yc.month
-     AND b.day_in_cycle = yc.day_in_cycle
+    INNER JOIN yesterday_cycle yc
+      ON b.day_in_cycle = yc.day_in_cycle  -- JOIN seulement sur day_in_cycle
     WHERE b.acquis_status_lvl1 = 'ACQUISITION'
       AND b.day_in_cycle > 0
-      AND (
-        -- Hier (cycle-based)
-        (b.diff_current_box = 0 AND DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY))
-        -- MoM (calendar-based)
-        OR DATE(b.payment_date) = DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)
-        -- YoY (cycle-based)
-        OR b.diff_current_box = -11
-      )
+      AND b.diff_current_box IN (0, -1, -11)
     GROUP BY ALL
     ORDER BY yc.month DESC, yc.day_in_cycle DESC, country
     """
