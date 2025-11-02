@@ -1000,45 +1000,287 @@ def generate_daily_summary():
     return "\n".join(lines)
 
 
-def send_morning_summary(channel: str = "bot-lab"):
+def generate_daily_summary_blocks():
     """
-    Génère et envoie le bilan quotidien au channel spécifié.
+    Generate daily summary in Slack Block Kit format.
+    More interactive and mobile-friendly than plain text.
+
+    Returns:
+        dict: {'blocks': [...], 'text': 'fallback text'}
+    """
+    from datetime import datetime, timedelta
+
+    # Get data
+    country_result = get_country_acquisitions_with_comparisons()
+    country_data = country_result['aggregated']
+    latest_date = country_result.get('latest_date')
+
+    if not country_data:
+        return {
+            'blocks': [
+                {
+                    'type': 'section',
+                    'text': {
+                        'type': 'mrkdwn',
+                        'text': '⚠️ Unable to generate daily report: missing data'
+                    }
+                }
+            ],
+            'text': 'Unable to generate daily report'
+        }
+
+    # Format date
+    if latest_date:
+        if isinstance(latest_date, str):
+            latest_date = datetime.strptime(str(latest_date), '%Y-%m-%d').date()
+        report_date = format_date_human(latest_date)
+    else:
+        yesterday_obj = datetime.now() - timedelta(days=1)
+        report_date = format_date_human(yesterday_obj.date())
+
+    blocks = []
+
+    # Header
+    blocks.append({
+        'type': 'header',
+        'text': {
+            'type': 'plain_text',
+            'text': f'📊 Blissim Acquisition Report – {report_date}',
+            'emoji': True
+        }
+    })
+
+    blocks.append({'type': 'divider'})
+
+    # Total summary
+    total_acquis = sum(c['nb_acquis'] for c in country_data)
+    total_var_avg = sum(c['var_n1_pct'] for c in country_data) / len(country_data) if country_data else 0
+
+    blocks.append({
+        'type': 'section',
+        'text': {
+            'type': 'mrkdwn',
+            'text': f'*Total Acquisitions:* {total_acquis:,}\n*Avg YoY Change:* {total_var_avg:+.1f}%'
+        }
+    })
+
+    blocks.append({'type': 'divider'})
+
+    # Section 1: Yesterday's Acquisitions by Country
+    blocks.append({
+        'type': 'section',
+        'text': {
+            'type': 'mrkdwn',
+            'text': '*🌍 Yesterday\'s Acquisitions by Country*\n_YoY comparison uses same cycle day (not calendar day)_'
+        }
+    })
+
+    # Country data in columns (2 per row using fields)
+    for country in country_data:
+        flag = get_country_flag(country['country'])
+        nb = int(country['nb_acquis'])
+        var_n1 = country['var_n1_pct'] or 0
+        pct_committed = country['pct_committed'] or 0
+        top_coupon = (country['top_coupon'] or 'N/A')[:20]
+
+        emoji_n1 = "📈" if var_n1 > 0 else "📉" if var_n1 < 0 else "➡️"
+
+        blocks.append({
+            'type': 'section',
+            'fields': [
+                {
+                    'type': 'mrkdwn',
+                    'text': f'{flag} *{nb:,}* acq.'
+                },
+                {
+                    'type': 'mrkdwn',
+                    'text': f'{emoji_n1} *{var_n1:+.1f}%* YoY'
+                },
+                {
+                    'type': 'mrkdwn',
+                    'text': f'Committed: *{pct_committed:.0f}%*'
+                },
+                {
+                    'type': 'mrkdwn',
+                    'text': f'Top: _{top_coupon}_'
+                }
+            ],
+            'accessory': {
+                'type': 'button',
+                'text': {
+                    'type': 'plain_text',
+                    'text': 'Details',
+                    'emoji': True
+                },
+                'value': f'country_details_{country["country"]}',
+                'action_id': f'view_country_details_{country["country"]}'
+            }
+        })
+
+    blocks.append({'type': 'divider'})
+
+    # Section 2: Daily Performance Analysis
+    blocks.append({
+        'type': 'section',
+        'text': {
+            'type': 'mrkdwn',
+            'text': '*🧠 Daily Performance Analysis (YoY & MoM)*'
+        }
+    })
+
+    for country in country_data:
+        insight = generate_analytical_insight(country)
+        blocks.append({
+            'type': 'section',
+            'text': {
+                'type': 'mrkdwn',
+                'text': insight
+            }
+        })
+
+    blocks.append({'type': 'divider'})
+
+    # Section 3: Cycle Performance
+    blocks.append({
+        'type': 'section',
+        'text': {
+            'type': 'mrkdwn',
+            'text': '*📊 Cycle Performance (since cycle start)*'
+        }
+    })
+
+    for country in country_data:
+        cycle_insight = generate_cycle_insight(country)
+        blocks.append({
+            'type': 'section',
+            'text': {
+                'type': 'mrkdwn',
+                'text': cycle_insight
+            }
+        })
+
+    blocks.append({'type': 'divider'})
+
+    # Action buttons
+    blocks.append({
+        'type': 'actions',
+        'elements': [
+            {
+                'type': 'button',
+                'text': {
+                    'type': 'plain_text',
+                    'text': '📊 View Full Analysis',
+                    'emoji': True
+                },
+                'style': 'primary',
+                'value': 'view_full_analysis',
+                'action_id': 'view_full_analysis'
+            },
+            {
+                'type': 'button',
+                'text': {
+                    'type': 'plain_text',
+                    'text': '📥 Export Data',
+                    'emoji': True
+                },
+                'value': 'export_data',
+                'action_id': 'export_data'
+            }
+        ]
+    })
+
+    # Footer
+    blocks.append({
+        'type': 'context',
+        'elements': [
+            {
+                'type': 'mrkdwn',
+                'text': '_Generated by Franck 🤖_'
+            }
+        ]
+    })
+
+    # Fallback text for notifications
+    fallback_text = f'Blissim Acquisition Report – {report_date}: {total_acquis:,} acquisitions ({total_var_avg:+.1f}% YoY avg)'
+
+    return {
+        'blocks': blocks,
+        'text': fallback_text
+    }
+
+
+def send_morning_summary(channel: str = "bot-lab", use_blocks: bool = True):
+    """
+    Generate and send daily summary to specified channel.
 
     Args:
-        channel: Nom du channel Slack (par défaut: bot-lab)
+        channel: Slack channel name (default: bot-lab)
+        use_blocks: Use Block Kit format (default: True)
     """
     try:
-        print(f"[Morning Summary] Envoi du bilan quotidien au channel #{channel}")
+        print(f"[Morning Summary] Sending daily summary to #{channel}")
 
-        # Générer le bilan
-        summary = generate_daily_summary()
+        if use_blocks:
+            # Generate Block Kit version
+            result = generate_daily_summary_blocks()
+            blocks = result['blocks']
+            fallback_text = result['text']
 
-        print(f"[Morning Summary] Bilan généré ({len(summary)} caractères)")
-        print(f"[Morning Summary] Aperçu: {summary[:100]}...")
+            print(f"[Morning Summary] Block Kit format generated ({len(blocks)} blocks)")
 
-        # Vérifier si c'est un message d'erreur
-        if "Impossible de générer" in summary or "données manquantes" in summary:
-            print(f"[Morning Summary] ⚠️ Le bilan contient une erreur")
-            # Envoyer quand même pour que l'utilisateur sache
+            # Check for error
+            if 'Unable to generate' in fallback_text:
+                print(f"[Morning Summary] ⚠️ Report contains an error")
+                response = app.client.chat_postMessage(
+                    channel=channel,
+                    blocks=blocks,
+                    text=fallback_text
+                )
+                print(f"[Morning Summary] Error message sent (ts: {response['ts']})")
+                return False
+
+            # Send to channel
             response = app.client.chat_postMessage(
                 channel=channel,
-                text=summary
+                blocks=blocks,
+                text=fallback_text,
+                unfurl_links=False,
+                unfurl_media=False
             )
-            print(f"[Morning Summary] Message d'erreur envoyé (ts: {response['ts']})")
-            return False
 
-        # Envoyer au channel (pas dans un thread)
-        response = app.client.chat_postMessage(
-            channel=channel,
-            text=summary,
-            unfurl_links=False,
-            unfurl_media=False
-        )
+            print(f"[Morning Summary] ✅ Summary sent successfully to #{channel} (ts: {response['ts']})")
+            return True
 
-        print(f"[Morning Summary] ✅ Bilan envoyé avec succès dans #{channel} (ts: {response['ts']})")
-        return True
+        else:
+            # Generate plain text version (fallback)
+            summary = generate_daily_summary()
+
+            print(f"[Morning Summary] Plain text generated ({len(summary)} characters)")
+            print(f"[Morning Summary] Preview: {summary[:100]}...")
+
+            # Check for error
+            if "Unable to generate" in summary or "missing data" in summary:
+                print(f"[Morning Summary] ⚠️ Report contains an error")
+                response = app.client.chat_postMessage(
+                    channel=channel,
+                    text=summary
+                )
+                print(f"[Morning Summary] Error message sent (ts: {response['ts']})")
+                return False
+
+            # Send to channel
+            response = app.client.chat_postMessage(
+                channel=channel,
+                text=summary,
+                unfurl_links=False,
+                unfurl_media=False
+            )
+
+            print(f"[Morning Summary] ✅ Summary sent successfully to #{channel} (ts: {response['ts']})")
+            return True
+
     except Exception as e:
-        print(f"[Morning Summary] ❌ Erreur lors de l'envoi : {e}")
+        print(f"[Morning Summary] ❌ Error during send: {e}")
         import traceback
         traceback.print_exc()
         return False

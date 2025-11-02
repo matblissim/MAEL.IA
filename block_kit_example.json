@@ -1,0 +1,225 @@
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "📊 Blissim Acquisition Report – Saturday 2nd November",
+        "emoji": true
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Total Acquisitions:* 2,345\n*Avg YoY Change:* +12.5%"
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*🌍 Yesterday's Acquisitions by Country*\n_YoY comparison uses same cycle day (not calendar day)_"
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "🇫🇷 *1,234* acq."
+        },
+        {
+          "type": "mrkdwn",
+          "text": "📈 *+15.2%* YoY"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "Committed: *55%*"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "Top: _COUPON20_"
+        }
+      ],
+      "accessory": {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "text": "Details",
+          "emoji": true
+        },
+        "value": "country_details_FR",
+        "action_id": "view_country_details_FR"
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "🇩🇪 *876* acq."
+        },
+        {
+          "type": "mrkdwn",
+          "text": "📉 *-8.3%* YoY"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "Committed: *42%*"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "Top: _WELCOME15_"
+        }
+      ],
+      "accessory": {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "text": "Details",
+          "emoji": true
+        },
+        "value": "country_details_DE",
+        "action_id": "view_country_details_DE"
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "🇪🇸 *235* acq."
+        },
+        {
+          "type": "mrkdwn",
+          "text": "➡️ *+2.1%* YoY"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "Committed: *38%*"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "Top: _SPRING10_"
+        }
+      ],
+      "accessory": {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "text": "Details",
+          "emoji": true
+        },
+        "value": "country_details_ES",
+        "action_id": "view_country_details_ES"
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*🧠 Daily Performance Analysis (YoY & MoM)*"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "• 🇫🇷 good progress (+15% YoY), solid committed (55%), dynamic NEW NEW (+8pts)"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "• 🇩🇪 slightly below YoY (-8%), but +7pts committed compensates, trend confirmed MoM"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "• 🇪🇸 stable vs YoY (+2%), low committed (38%)"
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*📊 Cycle Performance (since cycle start)*"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "• 🇫🇷 5,234 acq. (+18%, +980), ✅ committed 58% (+5pts vs YoY), NEW NEW 45% (+3pts)"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "• 🇩🇪 2,145 acq. (-12%, -287), ⚠️ committed 35% (-4pts vs YoY), mix: 38% NEW NEW, 42% REACTIV"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "• 🇪🇸 1,567 acq. (stable +2%), solid committed (52%), mix: 40% NEW NEW, 35% REACTIV"
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "📊 View Full Analysis",
+            "emoji": true
+          },
+          "style": "primary",
+          "value": "view_full_analysis",
+          "action_id": "view_full_analysis"
+        },
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "📥 Export Data",
+            "emoji": true
+          },
+          "value": "export_data",
+          "action_id": "export_data"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "_Generated by Franck 🤖_"
+        }
+      ]
+    }
+  ]
+}
