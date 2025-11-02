@@ -24,24 +24,29 @@ logger = logging.getLogger(__name__)
 
 
 def keep_alive():
-    """Thread qui maintient la connexion Socket Mode active avec un ping périodique."""
-    ping_interval = 120  # Ping toutes les 2 minutes (réduit de 5 min)
+    """Thread qui maintient la connexion Socket Mode active avec un ping périodique AGRESSIF."""
+    ping_interval = 30  # Ping toutes les 30 SECONDES (beaucoup plus agressif)
     consecutive_failures = 0
     max_failures = 3
+
+    logger.info(f"🔄 Keep-alive démarré - ping toutes les {ping_interval}s")
 
     while True:
         time.sleep(ping_interval)
         try:
             result = app.client.auth_test()
             consecutive_failures = 0  # Reset le compteur en cas de succès
-            logger.info(f"🔄 Keep-alive ping OK - bot_user={result.get('user')} team={result.get('team')}")
+            logger.debug(f"🔄 Keep-alive ping OK - bot_user={result.get('user')} team={result.get('team')}")
         except Exception as e:
             consecutive_failures += 1
-            logger.warning(f"⚠️ Keep-alive ping error ({consecutive_failures}/{max_failures}): {e}")
+            logger.error(f"⚠️ Keep-alive ping ÉCHOUÉ ({consecutive_failures}/{max_failures}): {e}")
 
-            # Si trop d'échecs consécutifs, logger une alerte
+            # Si trop d'échecs consécutifs, logger une alerte CRITIQUE
             if consecutive_failures >= max_failures:
-                logger.error(f"🚨 ALERTE: {max_failures} échecs consécutifs du keep-alive ! La connexion pourrait être perdue.")
+                logger.critical(f"🚨🚨🚨 ALERTE CRITIQUE: {max_failures} échecs consécutifs du keep-alive !")
+                logger.critical(f"🚨 La connexion Socket Mode est probablement PERDUE !")
+                logger.critical(f"🚨 Le bot pourrait RATER des messages !")
+                logger.critical(f"🚨 REDÉMARRAGE DU BOT RECOMMANDÉ !")
                 # Reset le compteur pour éviter de spammer les logs
                 consecutive_failures = 0
 
@@ -131,7 +136,7 @@ def main():
     # Démarrage du thread keep-alive pour éviter le broken pipe
     keep_alive_thread = threading.Thread(target=keep_alive, daemon=True, name=f"{BOT_NAME}-KeepAlive")
     keep_alive_thread.start()
-    logger.info(f"🔄 Keep-alive activé (ping toutes les 2 min)")
+    logger.info(f"🔄 Keep-alive activé (ping toutes les 30s - AGRESSIF)")
 
     # Démarrage du bot en Socket Mode avec gestion d'erreur
     logger.info("🚀 Démarrage du Socket Mode Handler...")

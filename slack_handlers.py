@@ -273,10 +273,18 @@ def setup_handlers(context: str):
     @app.event("message")
     def on_message(event, client, logger):
         try:
+            # LOG COMPLET DE L'ÉVÉNEMENT POUR DEBUG
+            logger.info("="*80)
+            logger.info("📥 NOUVEL ÉVÉNEMENT MESSAGE REÇU")
+            logger.info(f"Event keys: {list(event.keys())}")
+
             # Déduplication des événements
             event_id = event.get("event_ts") or event.get("ts")  # Utiliser event_ts ou ts comme ID unique
+            logger.info(f"🔑 Event ID pour déduplication: {event_id}")
+
             if event_id and seen_events.seen(event_id):
-                logger.debug(f"⏭️ Message dédupliqué (event_id={event_id})")
+                logger.info(f"⏭️ Message DÉDUPLIQUÉ (event_id={event_id}) - IGNORÉ")
+                logger.info("="*80)
                 return
 
             # Log détaillé du message reçu
@@ -285,17 +293,25 @@ def setup_handlers(context: str):
             thread_ts = event.get('thread_ts', 'NO_THREAD')
             msg_ts = event.get('ts', 'unknown')
             user = event.get("user", "unknown")
+            subtype = event.get("subtype", "NONE")
 
-            logger.info(f"📨 Message reçu: '{text_preview}...' | channel={channel_id} | thread={thread_ts} | ts={msg_ts} | user={user}")
+            logger.info(f"📨 Message: '{text_preview}...'")
+            logger.info(f"   Channel: {channel_id}")
+            logger.info(f"   Thread TS: {thread_ts}")
+            logger.info(f"   Message TS: {msg_ts}")
+            logger.info(f"   User: {user}")
+            logger.info(f"   Subtype: {subtype}")
 
             # Ignorer les messages avec subtype (éditions, suppressions, etc.)
             if event.get("subtype"):
-                logger.info(f"⏭️ Message ignoré (subtype={event.get('subtype')}) - Ceci est normal pour les messages édités/supprimés")
+                logger.info(f"⏭️ Message IGNORÉ (subtype={event.get('subtype')})")
+                logger.info("="*80)
                 return
 
             # Ignorer les messages qui ne sont pas dans un thread
             if "thread_ts" not in event:
-                logger.debug("⏭️ Message ignoré (pas dans un thread) - Ceci est normal pour les messages directs au channel")
+                logger.info("⏭️ Message IGNORÉ (pas dans un thread)")
+                logger.info("="*80)
                 return
 
             thread_ts = event["thread_ts"]
@@ -305,16 +321,21 @@ def setup_handlers(context: str):
 
             # Ignorer les messages du bot lui-même
             bot_id = get_bot_user_id()
+            logger.info(f"🤖 Bot ID: {bot_id}")
+
             if user == bot_id:
-                logger.debug(f"⏭️ Message ignoré (envoyé par le bot {bot_id})")
+                logger.info(f"⏭️ Message IGNORÉ (envoyé par le bot lui-même)")
+                logger.info("="*80)
                 return
 
             # Vérifier si le bot est dans ce thread
-            logger.debug(f"🔍 Vérification si le bot est dans le thread {thread_ts[:10]}...")
+            logger.info(f"🔍 Vérification si le bot est dans le thread {thread_ts[:10]}...")
             is_in_thread = bot_is_in_thread(channel, thread_ts)
+            logger.info(f"✅ Résultat vérification: is_in_thread={is_in_thread}")
 
             if not is_in_thread:
-                logger.info(f"⏭️ Thread {thread_ts[:10]}... ignoré (bot pas actif dans ce thread)")
+                logger.info(f"⏭️ Thread IGNORÉ (bot pas actif dans ce thread)")
+                logger.info("="*80)
                 return
 
             # Vérifier le nombre de messages dans le thread (limite à 20)
@@ -346,7 +367,9 @@ def setup_handlers(context: str):
                 # En cas d'erreur, continuer quand même (on ne bloque pas sur cette vérification)
                 logger.warning(f"⚠️ Impossible de compter les messages du thread: {count_error}")
 
-            logger.info(f"🎯 Bot actif dans thread {thread_ts[:10]}... - Traitement du message '{text[:50]}...'")
+            logger.info(f"🎯 Bot actif dans thread {thread_ts[:10]}... - TRAITEMENT EN COURS")
+            logger.info(f"📝 Texte du message: '{text[:100]}'")
+            logger.info("="*80)
 
             # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
             try:
