@@ -105,24 +105,81 @@ def register_morning_summary_handlers(app: App):
 
         flag = get_country_flag(country_code)
 
+        # Calculate additional metrics
+        var_m1_pct = 0
+        if country_info['nb_acquis_m1'] > 0:
+            var_m1_pct = ((country_info['nb_acquis'] - country_info['nb_acquis_m1']) / country_info['nb_acquis_m1']) * 100
+        elif country_info['nb_acquis'] > 0:
+            var_m1_pct = 100
+
+        delta_committed = country_info['pct_committed'] - country_info['pct_committed_n1']
+        delta_new_new = country_info['pct_new_new'] - country_info['pct_new_new_n1']
+
+        delta_cycle_committed = country_info['pct_cycle_committed_ty'] - country_info['pct_cycle_committed_ly']
+        delta_cycle_new_new = country_info['pct_cycle_new_new_ty'] - country_info['pct_cycle_new_new_ly']
+
         # Build detailed country message
         details = []
-        details.append(f"*{flag} {country_code} - Detailed Metrics*\n")
+        details.append(f"*{flag} {country_code} - Detailed Analysis*\n")
 
-        details.append("*Yesterday's Performance*")
-        details.append(f"• Total acquisitions: {country_info['nb_acquis']:,}")
-        details.append(f"• YoY change: {country_info['var_n1_pct']:+.1f}% (vs {country_info['nb_acquis_n1']:,})")
-        details.append(f"• MoM: {country_info['nb_acquis_m1']:,} acquisitions")
-        details.append(f"• Committed: {country_info['pct_committed']:.1f}%")
-        details.append(f"• NEW NEW: {country_info['pct_new_new']:.1f}%")
+        # === YESTERDAY'S PERFORMANCE ===
+        details.append("*📊 Yesterday's Performance*")
+        details.append(f"• Total: *{country_info['nb_acquis']:,}* acquisitions")
+        details.append(f"• vs M-1: {country_info['nb_acquis_m1']:,} ({var_m1_pct:+.1f}% MoM)")
+        details.append(f"• vs N-1: {country_info['nb_acquis_n1']:,} ({country_info['var_n1_pct']:+.1f}% YoY)")
+        details.append("")
+
+        # === QUALITY METRICS ===
+        details.append("*💎 Quality Metrics (Yesterday)*")
+        details.append(f"• Committed: {country_info['pct_committed']:.1f}% (vs {country_info['pct_committed_n1']:.1f}% N-1, {delta_committed:+.1f}pts)")
+        details.append(f"• NEW NEW: {country_info['pct_new_new']:.1f}% (vs {country_info['pct_new_new_n1']:.1f}% N-1, {delta_new_new:+.1f}pts)")
         details.append(f"• Top coupon: {country_info['top_coupon']}")
+        details.append("")
 
-        details.append("\n*Cycle Performance*")
-        details.append(f"• Cycle cumul: {country_info['cycle_cumul_ty']:,} (vs {country_info['cycle_cumul_ly']:,} YoY)")
-        details.append(f"• Cycle change: {country_info['cycle_var_pct']:+.1f}%")
-        details.append(f"• Cycle committed: {country_info['pct_cycle_committed_ty']:.1f}%")
-        details.append(f"• Cycle NEW NEW: {country_info['pct_cycle_new_new_ty']:.1f}%")
-        details.append(f"• Cycle REACTIVATION: {country_info['pct_cycle_reactivation_ty']:.1f}%")
+        # === CYCLE PERFORMANCE ===
+        details.append("*📈 Cycle Performance (since start)*")
+        details.append(f"• Cumulative: *{country_info['cycle_cumul_ty']:,}* acq.")
+        details.append(f"• vs N-1 cycle: {country_info['cycle_cumul_ly']:,} ({country_info['cycle_var_pct']:+.1f}%)")
+        details.append(f"• Committed: {country_info['pct_cycle_committed_ty']:.1f}% (vs {country_info['pct_cycle_committed_ly']:.1f}% N-1, {delta_cycle_committed:+.1f}pts)")
+        details.append(f"• NEW NEW: {country_info['pct_cycle_new_new_ty']:.1f}% (vs {country_info['pct_cycle_new_new_ly']:.1f}% N-1, {delta_cycle_new_new:+.1f}pts)")
+        details.append(f"• REACTIVATION: {country_info['pct_cycle_reactivation_ty']:.1f}% (vs {country_info['pct_cycle_reactivation_ly']:.1f}% N-1)")
+        details.append("")
+
+        # === KEY INSIGHTS ===
+        insights = []
+
+        # Volume trend
+        if var_m1_pct >= 10 and country_info['var_n1_pct'] >= 10:
+            insights.append("✅ Strong growth momentum (both MoM and YoY positive)")
+        elif var_m1_pct < -10 and country_info['var_n1_pct'] < -10:
+            insights.append("⚠️ Declining trend (both MoM and YoY negative)")
+        elif abs(var_m1_pct - country_info['var_n1_pct']) >= 20:
+            insights.append("📊 High volatility between short and long term trends")
+
+        # Quality signals
+        if delta_committed >= 5:
+            insights.append("✅ Improving quality (committed increasing)")
+        elif delta_committed <= -5:
+            insights.append("⚠️ Quality concern (committed decreasing)")
+
+        if delta_new_new >= 5:
+            insights.append("✅ Strong NEW NEW growth")
+        elif delta_new_new <= -5:
+            insights.append("⚠️ NEW NEW declining")
+
+        # Cycle performance
+        if country_info['cycle_var_pct'] >= 15:
+            insights.append("🚀 Excellent cycle performance (+15% or more)")
+        elif country_info['cycle_var_pct'] <= -10:
+            insights.append("📉 Cycle underperforming")
+
+        if insights:
+            details.append("*🔍 Key Insights*")
+            for insight in insights:
+                details.append(f"• {insight}")
+        else:
+            details.append("*🔍 Key Insights*")
+            details.append("• Stable performance across all metrics")
 
         client.chat_postEphemeral(
             channel=channel,

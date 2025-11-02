@@ -486,7 +486,8 @@ def get_country_acquisitions_with_comparisons():
                     'yesterday_total': 0,
                     'yesterday_committed': 0,
                     'yesterday_new_new': 0,
-                    'yesterday_coupons': {},
+                    'yesterday_coupons': {},  # {coupon: count}
+                    'yesterday_coupons_committed': {},  # {coupon: committed_count}
                     'month_prec_total': 0,
                     'month_prec_committed': 0,
                     'year_prec_total': 0,
@@ -508,9 +509,15 @@ def get_country_acquisitions_with_comparisons():
                 country_stats[country]['year_prec_new_new'] += nb_annee_prec
 
             if coupon:
+                # Track total uses per coupon
                 if coupon not in country_stats[country]['yesterday_coupons']:
                     country_stats[country]['yesterday_coupons'][coupon] = 0
+                    country_stats[country]['yesterday_coupons_committed'][coupon] = 0
                 country_stats[country]['yesterday_coupons'][coupon] += nb_actuel
+
+                # Track committed uses per coupon
+                if cannot_suspend == 1:
+                    country_stats[country]['yesterday_coupons_committed'][coupon] += nb_actuel
 
         # Récupérer le cumul du cycle
         print("[Morning Summary] Calcul du cumul du cycle...")
@@ -520,10 +527,25 @@ def get_country_acquisitions_with_comparisons():
         aggregated = []
         for country, stats in country_stats.items():
             if stats['yesterday_total'] > 0:
-                # Top coupon
-                top_coupon = 'N/A'
+                # Top 3 coupons with details
+                top_coupons_data = []
                 if stats['yesterday_coupons']:
-                    top_coupon = max(stats['yesterday_coupons'].items(), key=lambda x: x[1])[0]
+                    # Sort coupons by usage
+                    sorted_coupons = sorted(stats['yesterday_coupons'].items(), key=lambda x: x[1], reverse=True)
+
+                    # Get top 3
+                    for coupon, count in sorted_coupons[:3]:
+                        committed_count = stats['yesterday_coupons_committed'].get(coupon, 0)
+                        pct_committed_coupon = (committed_count / count * 100) if count > 0 else 0
+                        top_coupons_data.append({
+                            'code': coupon,
+                            'count': count,
+                            'committed_count': committed_count,
+                            'pct_committed': pct_committed_coupon
+                        })
+
+                # Legacy: keep top_coupon for backward compat
+                top_coupon = top_coupons_data[0]['code'] if top_coupons_data else 'N/A'
 
                 # Variance N-1 (année précédente)
                 var_n1_pct = 0
@@ -580,6 +602,7 @@ def get_country_acquisitions_with_comparisons():
                     'pct_new_new': round(pct_new_new, 1),
                     'pct_new_new_n1': round(pct_new_new_n1, 1),
                     'top_coupon': top_coupon,
+                    'top_coupons_data': top_coupons_data,  # Top 3 avec détails
                     'var_n1_pct': round(var_n1_pct, 1),
                     'cycle_cumul_ty': cycle_cumul_ty,
                     'cycle_cumul_ly': cycle_cumul_ly,
@@ -909,7 +932,6 @@ def generate_daily_summary():
 
     # ========== COUNTRY BREAKDOWN (BULLET POINTS) ==========
     lines.append("🌍 *1. Yesterday's Acquisitions by Country*")
-    lines.append("_Note: YoY comparison uses same cycle day (not calendar day)_")
     lines.append("")
 
     if country_data:
@@ -918,19 +940,24 @@ def generate_daily_summary():
         for country in country_data:
             flag = get_country_flag(country['country'])
             nb = int(country['nb_acquis'])
-            var_n1 = country['var_n1_pct'] or 0
             pct_committed = country['pct_committed'] or 0
-            top_coupon = (country['top_coupon'] or 'N/A')[:20]
+            top_coupons = country.get('top_coupons_data', [])
 
-            # Emoji for variation
-            emoji_n1 = "📈" if var_n1 > 0 else "📉" if var_n1 < 0 else "➡️"
+            # Build top 3 coupons summary
+            coupon_parts = []
+            for coupon_data in top_coupons[:3]:
+                code = coupon_data['code'][:15]
+                count = coupon_data['count']
+                pct_comm = coupon_data['pct_committed']
+                committed_icon = "✅" if pct_comm >= 50 else "⚪"
+                coupon_parts.append(f"{committed_icon} {code}: {count:,} ({pct_comm:.0f}% comm.)")
 
-            lines.append(
-                f"• {flag} *{nb:,}* acquisitions ({emoji_n1} {var_n1:+.1f}% YoY) "
-                f"— {pct_committed:.0f}% committed — Top: {top_coupon}"
-            )
+            coupons_text = " | ".join(coupon_parts) if coupon_parts else "No coupons"
 
-        lines.append("")
+            lines.append(f"• {flag} *{nb:,}* acq. — {pct_committed:.0f}% committed")
+            lines.append(f"  {coupons_text}")
+            lines.append("")
+
         lines.append(f"*Total: {total_acquis:,} acquisitions*")
         lines.append("")
 
@@ -1071,40 +1098,34 @@ def generate_daily_summary_blocks():
         'type': 'section',
         'text': {
             'type': 'mrkdwn',
-            'text': '*🌍 Yesterday\'s Acquisitions by Country*\n_YoY comparison uses same cycle day (not calendar day)_'
+            'text': '*🌍 Yesterday\'s Acquisitions by Country*'
         }
     })
 
-    # Country data in columns (2 per row using fields)
+    # Country data with top 3 coupons
     for country in country_data:
         flag = get_country_flag(country['country'])
         nb = int(country['nb_acquis'])
-        var_n1 = country['var_n1_pct'] or 0
         pct_committed = country['pct_committed'] or 0
-        top_coupon = (country['top_coupon'] or 'N/A')[:20]
+        top_coupons = country.get('top_coupons_data', [])
 
-        emoji_n1 = "📈" if var_n1 > 0 else "📉" if var_n1 < 0 else "➡️"
+        # Build coupon summary
+        coupon_lines = []
+        for i, coupon_data in enumerate(top_coupons[:3], 1):
+            code = coupon_data['code'][:12]  # Limit length
+            count = coupon_data['count']
+            pct_comm = coupon_data['pct_committed']
+            committed_icon = "✅" if pct_comm >= 50 else "⚪"
+            coupon_lines.append(f"{committed_icon} {code}: {count:,} ({pct_comm:.0f}% comm.)")
+
+        coupon_text = "\n".join(coupon_lines) if coupon_lines else "No coupons"
 
         blocks.append({
             'type': 'section',
-            'fields': [
-                {
-                    'type': 'mrkdwn',
-                    'text': f'{flag} *{nb:,}* acq.'
-                },
-                {
-                    'type': 'mrkdwn',
-                    'text': f'{emoji_n1} *{var_n1:+.1f}%* YoY'
-                },
-                {
-                    'type': 'mrkdwn',
-                    'text': f'Committed: *{pct_committed:.0f}%*'
-                },
-                {
-                    'type': 'mrkdwn',
-                    'text': f'Top: _{top_coupon}_'
-                }
-            ],
+            'text': {
+                'type': 'mrkdwn',
+                'text': f'*{flag} {nb:,} acquisitions* — {pct_committed:.0f}% committed\n{coupon_text}'
+            },
             'accessory': {
                 'type': 'button',
                 'text': {
