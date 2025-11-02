@@ -1,6 +1,6 @@
-- name: MAEL.IA — FRIDA Bot
+- name: MAEL.IA — Franck Bot
   group: mael
-  description: "Exécute app.py pour FRIDA (bot de test) depuis GitHub"
+  description: "Exécute app.py pour Franck (bot principal) depuis GitHub"
   loglevel: INFO
   executionEnabled: true
   nodeFilterEditable: false
@@ -14,10 +14,10 @@
         script: |
           set -eu
 
-          # 🤖 Configuration FRIDA - Répertoire séparé
-          BOT_NAME="FRIDA"
-          BOT_DIR="MAEL.IA-FRIDA"
-          PID_FILE="${BOT_DIR}/.frida.pid"
+          # 🤖 Configuration Franck
+          BOT_NAME="Franck"
+          BOT_DIR="MAEL.IA"
+          PID_FILE="${BOT_DIR}/.franck.pid"
 
           echo "➡️ Clone/Pull ($BOT_NAME)"
           if [ ! -d "${BOT_DIR}/.git" ]; then
@@ -25,7 +25,7 @@
           fi
           cd "${BOT_DIR}"
 
-          # 📌 Branche pour FRIDA
+          # 📌 Branche pour Franck
           BRANCH="${RD_OPTION_GIT_BRANCH}"
           git fetch --all --prune || true
           git checkout "$BRANCH" || git checkout -b "$BRANCH" "origin/$BRANCH"
@@ -76,11 +76,11 @@ PY
             echo "BIGQUERY_PROJECT_ID_2=${RD_OPTION_BIGQUERY_PROJECT_ID_2:-normalised-417010}"
             echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/service_account.json"
 
-            # 🆕 MORNING SUMMARY pour FRIDA
+            # 🆕 MORNING SUMMARY pour Franck
             echo "MORNING_SUMMARY_ENABLED=${RD_OPTION_MORNING_SUMMARY_ENABLED:-true}"
             echo "MORNING_SUMMARY_HOUR=${RD_OPTION_MORNING_SUMMARY_HOUR:-8}"
             echo "MORNING_SUMMARY_MINUTE=${RD_OPTION_MORNING_SUMMARY_MINUTE:-30}"
-            echo "MORNING_SUMMARY_CHANNEL=${RD_OPTION_MORNING_SUMMARY_CHANNEL:-bot-lab}"
+            echo "MORNING_SUMMARY_CHANNEL=${RD_OPTION_MORNING_SUMMARY_CHANNEL:-team_data}"
 
             # 🆕 ANALYSES PROACTIVES
             echo "PROACTIVE_ANALYSIS=${RD_OPTION_PROACTIVE_ANALYSIS:-true}"
@@ -118,7 +118,7 @@ PY
     - name: git_branch
       defaultValue: "main"
       required: true
-      description: "Branche pour FRIDA (ex: main, frida-dev)"
+      description: "Branche pour Franck (ex: main, develop)"
 
     - name: BQ_PROJECT
       defaultValue: "teamdata-291012"
@@ -134,45 +134,45 @@ PY
       required: false
       description: "Projet BigQuery secondaire (normalised)"
 
-    # GCP Service Account (partagée avec Franck)
+    # GCP Service Account (partagée avec FRIDA)
     - name: SERVICE_ACCOUNT_B64
       required: true
       secure: true
       valueExposed: false
-      description: "Clé GCP service account (base64) - PARTAGÉE avec Franck"
+      description: "Clé GCP service account (base64)"
       storagePath: "keys/service_account_b64"
 
-    # API Keys PARTAGÉES avec Franck
+    # API Keys PARTAGÉES avec FRIDA
     - name: OPENAI_API_KEY
       required: true
       secure: true
       valueExposed: false
-      description: "Clé OpenAI - PARTAGÉE avec Franck"
+      description: "Clé OpenAI (partagée)"
       storagePath: "keys/OPENAI_API_KEY"
 
     - name: ANTHROPIC_API_KEY
       required: true
       secure: true
       valueExposed: false
-      description: "Clé Anthropic - PARTAGÉE avec Franck"
+      description: "Clé Anthropic (partagée)"
       storagePath: "keys/ANTHROPIC_API_KEY"
 
-    # Slack Keys SPÉCIFIQUES à FRIDA (DIFFÉRENTES de Franck)
+    # Slack Keys SPÉCIFIQUES à Franck
     - name: SLACK_APP_TOKEN
       required: true
       secure: true
       valueExposed: false
-      description: "Clé Slack App FRIDA (xapp-...) - UNIQUE à FRIDA"
-      storagePath: "keys/FRIDA_SLACK_APP_TOKEN"
+      description: "Clé Slack App Franck (xapp-...)"
+      storagePath: "keys/SLACK_APP_TOKEN"
 
     - name: SLACK_BOT_TOKEN
       required: true
       secure: true
       valueExposed: false
-      description: "Clé Slack Bot FRIDA (xoxb-...) - UNIQUE à FRIDA"
-      storagePath: "keys/FRIDA_SLACK_BOT_TOKEN"
+      description: "Clé Slack Bot Franck (xoxb-...)"
+      storagePath: "keys/SLACK_BOT_TOKEN"
 
-    # DBT Configuration (partagée)
+    # DBT Configuration
     - name: DBT_MANIFEST_PATH
       defaultValue: "/home/rundeck/DBT/target/manifest.json"
       required: false
@@ -183,12 +183,12 @@ PY
       required: false
       description: "Schémas DBT autorisés"
 
-    # Notion (optionnelles, partagées avec Franck)
+    # Notion (optionnelles, partagées avec FRIDA)
     - name: NOTION_API_KEY
       required: false
       secure: true
       valueExposed: false
-      description: "Clé Notion - PARTAGÉE avec Franck"
+      description: "Clé Notion (partagée)"
       storagePath: "keys/NOTION_API_KEY"
 
     - name: NOTION_TEST_PAGE_ID
@@ -226,9 +226,9 @@ PY
       description: "Minute du bilan matinal (0-59)"
 
     - name: MORNING_SUMMARY_CHANNEL
-      defaultValue: "bot-lab"
+      defaultValue: "team_data"
       required: false
-      description: "Canal Slack pour le bilan matinal de FRIDA"
+      description: "Canal Slack pour le bilan matinal"
 
     # Proactive Analysis Configuration
     - name: PROACTIVE_ANALYSIS
