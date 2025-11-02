@@ -191,16 +191,34 @@ def setup_handlers(context: str):
                 logger.info("⏭️ Message ignoré (c'est moi)")
                 return
 
-            # Ignorer les messages qui mentionnent un autre bot
-            # Pattern: <@U12345> pour les mentions
+            # Vérifier si le thread a été démarré pour CE bot
+            # Récupérer le premier message du thread pour voir qui a été mentionné
             import re
-            bot_mentions = re.findall(r'<@(U[A-Z0-9]+)>', text)
-            if bot_mentions:
-                my_bot_id = get_bot_user_id()
-                # Si le message mentionne un bot et que ce n'est pas nous, ignorer
-                if my_bot_id not in bot_mentions:
-                    logger.info(f"⏭️ Message ignoré (mentionne un autre bot: {bot_mentions})")
-                    return
+            my_bot_id = get_bot_user_id()
+
+            try:
+                # Récupérer le premier message du thread (le message qui a créé le thread)
+                result = client.conversations_history(
+                    channel=channel,
+                    latest=thread_ts,
+                    limit=1,
+                    inclusive=True
+                )
+
+                if result and result.get("messages"):
+                    first_message = result["messages"][0]
+                    first_message_text = first_message.get("text", "")
+
+                    # Chercher les mentions de bots dans le premier message
+                    bot_mentions = re.findall(r'<@(U[A-Z0-9]+)>', first_message_text)
+
+                    if bot_mentions and my_bot_id not in bot_mentions:
+                        # Le thread a été démarré avec une mention à un autre bot
+                        logger.info(f"⏭️ Message ignoré (thread démarré pour un autre bot: {bot_mentions})")
+                        return
+            except Exception as e:
+                logger.warning(f"⚠️ Impossible de vérifier le premier message du thread: {e}")
+                # En cas d'erreur, continuer quand même
 
             logger.info(f"✅ Message accepté dans thread {thread_ts[:10]}… : '{text[:100]}'")
 
