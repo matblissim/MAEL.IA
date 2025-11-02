@@ -389,13 +389,6 @@ def setup_handlers(context: str):
                 logger.info("="*80)
                 return
 
-            # Ignorer les messages qui ne sont pas dans un thread
-            if "thread_ts" not in event:
-                logger.info("⏭️ Message IGNORÉ (pas dans un thread)")
-                logger.info("="*80)
-                return
-
-            thread_ts = event["thread_ts"]
             channel = event["channel"]
             user = event.get("user", "")
             text = (event.get("text") or "").strip()
@@ -409,47 +402,88 @@ def setup_handlers(context: str):
                 logger.info("="*80)
                 return
 
-            # Vérifier si le bot est dans ce thread
-            logger.info(f"🔍 Vérification si le bot est dans le thread {thread_ts[:10]}...")
-            is_in_thread = bot_is_in_thread(channel, thread_ts)
-            logger.info(f"✅ Résultat vérification: is_in_thread={is_in_thread}")
+            # Vérifier si c'est une mention du bot
+            is_bot_mentioned = f"<@{bot_id}>" in text
+            logger.info(f"🔍 Bot mentionné dans le message: {is_bot_mentioned}")
 
-            if not is_in_thread:
-                logger.info(f"⏭️ Thread IGNORÉ (bot pas actif dans ce thread)")
-                logger.info("="*80)
-                return
+            # Si pas dans un thread
+            if "thread_ts" not in event:
+                # Si le bot est mentionné, on traite quand même (message direct au channel)
+                if is_bot_mentioned:
+                    logger.info("📢 Message direct au channel AVEC mention du bot → TRAITEMENT")
+                    # Créer un thread_ts avec le ts du message (pas un vrai thread)
+                    thread_ts = event["ts"]
+                    logger.info(f"   Création d'un pseudo-thread avec ts={thread_ts}")
+                else:
+                    # Pas de mention + pas de thread = on ignore
+                    logger.info("⏭️ Message IGNORÉ (pas dans un thread ET pas de mention)")
+                    logger.info("="*80)
+                    return
+            else:
+                # C'est dans un thread
+                thread_ts = event["thread_ts"]
+
+                # Vérifier si le bot est dans ce thread (sauf si c'est une mention)
+                if not is_bot_mentioned:
+                    logger.info(f"🔍 Vérification si le bot est dans le thread {thread_ts[:10]}...")
+                    is_in_thread = bot_is_in_thread(channel, thread_ts)
+                    logger.info(f"✅ Résultat vérification: is_in_thread={is_in_thread}")
+
+                    if not is_in_thread:
+                        logger.info(f"⏭️ Thread IGNORÉ (bot pas actif dans ce thread)")
+                        logger.info("="*80)
+                        return
+                else:
+                    logger.info(f"📢 Mention du bot détectée dans thread {thread_ts[:10]}... → TRAITEMENT FORCÉ")
 
             # Vérifier le nombre de messages dans le thread (limite à 20)
-            try:
-                thread_info = app.client.conversations_replies(
-                    channel=channel,
-                    ts=thread_ts,
-                    limit=1000  # On compte tous les messages
-                )
-                message_count = len(thread_info.get("messages", []))
-                logger.debug(f"📊 Thread {thread_ts[:10]}... contient {message_count} messages")
+            # Mais seulement si c'est un VRAI thread (pas un message direct au channel)
+            is_real_thread = "thread_ts" in event and event.get("thread_ts") != event.get("ts")
 
-                # Si plus de 20 messages, arrêter de répondre automatiquement
-                if message_count >= 20:
-                    logger.info(f"🛑 Thread {thread_ts[:10]}... a atteint la limite de {message_count} messages (max: 20)")
-                    logger.info(f"⏭️ Arrêt des réponses automatiques pour éviter une conversation infinie")
-                    # Envoyer un message pour informer l'utilisateur
-                    try:
-                        client.chat_postMessage(
-                            channel=channel,
-                            thread_ts=thread_ts,
-                            text=f"⚠️ Ce thread a atteint la limite de 20 messages. Pour continuer, mentionnez-moi avec @{BOT_NAME} ou commencez un nouveau thread !"
-                        )
-                        invalidate_thread_cache(thread_ts)
-                    except Exception as msg_error:
-                        logger.warning(f"⚠️ Impossible d'envoyer le message de limite: {msg_error}")
-                    return
-            except Exception as count_error:
-                # En cas d'erreur, continuer quand même (on ne bloque pas sur cette vérification)
-                logger.warning(f"⚠️ Impossible de compter les messages du thread: {count_error}")
+            if is_real_thread:
+                try:
+                    thread_info = app.client.conversations_replies(
+                        channel=channel,
+                        ts=thread_ts,
+                        limit=1000  # On compte tous les messages
+                    )
+                    message_count = len(thread_info.get("messages", []))
+                    logger.debug(f"📊 Thread {thread_ts[:10]}... contient {message_count} messages")
 
-            logger.info(f"🎯 Bot actif dans thread {thread_ts[:10]}... - TRAITEMENT EN COURS")
-            logger.info(f"📝 Texte du message: '{text[:100]}'")
+                    # Si plus de 20 messages, arrêter de répondre automatiquement (sauf si mention)
+                    if message_count >= 20 and not is_bot_mentioned:
+                        logger.info(f"🛑 Thread {thread_ts[:10]}... a atteint la limite de {message_count} messages (max: 20)")
+                        logger.info(f"⏭️ Arrêt des réponses automatiques pour éviter une conversation infinie")
+                        # Envoyer un message pour informer l'utilisateur
+                        try:
+                            client.chat_postMessage(
+                                channel=channel,
+                                thread_ts=thread_ts,
+                                text=f"⚠️ Ce thread a atteint la limite de 20 messages. Pour continuer, mentionnez-moi avec @{BOT_NAME} ou commencez un nouveau thread !"
+                            )
+                            invalidate_thread_cache(thread_ts)
+                        except Exception as msg_error:
+                            logger.warning(f"⚠️ Impossible d'envoyer le message de limite: {msg_error}")
+                        return
+                except Exception as count_error:
+                    # En cas d'erreur, continuer quand même (on ne bloque pas sur cette vérification)
+                    logger.warning(f"⚠️ Impossible de compter les messages du thread: {count_error}")
+
+            logger.info(f"🎯 Traitement du message - TRAITEMENT EN COURS")
+            logger.info(f"📝 Texte brut: '{text[:100]}'")
+
+            # Retirer la mention du bot du texte avant de l'envoyer à Claude
+            if is_bot_mentioned:
+                text_clean = re.sub(rf"<@{bot_id}>\s*", "", text).strip()
+                logger.info(f"📝 Texte nettoyé (sans mention): '{text_clean[:100]}'")
+            else:
+                text_clean = text
+
+            if not text_clean:
+                # Si le message ne contient que la mention, demander de clarifier
+                text_clean = "Bonjour ! Comment puis-je t'aider ?"
+                logger.info(f"📝 Message vide après nettoyage → Utilisation d'un prompt par défaut")
+
             logger.info("="*80)
 
             # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
@@ -467,7 +501,7 @@ def setup_handlers(context: str):
             answer = None
             for attempt in range(3):
                 try:
-                    answer = ask_claude(text, thread_ts, CURRENT_CONTEXT)
+                    answer = ask_claude(text_clean, thread_ts, CURRENT_CONTEXT)
                     logger.info("✅ Réponse de Claude reçue")
                     break
                 except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
