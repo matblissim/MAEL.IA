@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from typing import Optional
 from functools import lru_cache
-from config import app
+from config import app, BOT_NAME
 from claude_client import ask_claude, format_sql_queries
 from thread_memory import get_last_queries
 
@@ -316,6 +316,35 @@ def setup_handlers(context: str):
             if not is_in_thread:
                 logger.info(f"⏭️ Thread {thread_ts[:10]}... ignoré (bot pas actif dans ce thread)")
                 return
+
+            # Vérifier le nombre de messages dans le thread (limite à 20)
+            try:
+                thread_info = app.client.conversations_replies(
+                    channel=channel,
+                    ts=thread_ts,
+                    limit=1000  # On compte tous les messages
+                )
+                message_count = len(thread_info.get("messages", []))
+                logger.debug(f"📊 Thread {thread_ts[:10]}... contient {message_count} messages")
+
+                # Si plus de 20 messages, arrêter de répondre automatiquement
+                if message_count >= 20:
+                    logger.info(f"🛑 Thread {thread_ts[:10]}... a atteint la limite de {message_count} messages (max: 20)")
+                    logger.info(f"⏭️ Arrêt des réponses automatiques pour éviter une conversation infinie")
+                    # Envoyer un message pour informer l'utilisateur
+                    try:
+                        client.chat_postMessage(
+                            channel=channel,
+                            thread_ts=thread_ts,
+                            text=f"⚠️ Ce thread a atteint la limite de 20 messages. Pour continuer, mentionnez-moi avec @{BOT_NAME} ou commencez un nouveau thread !"
+                        )
+                        invalidate_thread_cache(thread_ts)
+                    except Exception as msg_error:
+                        logger.warning(f"⚠️ Impossible d'envoyer le message de limite: {msg_error}")
+                    return
+            except Exception as count_error:
+                # En cas d'erreur, continuer quand même (on ne bloque pas sur cette vérification)
+                logger.warning(f"⚠️ Impossible de compter les messages du thread: {count_error}")
 
             logger.info(f"🎯 Bot actif dans thread {thread_ts[:10]}... - Traitement du message '{text[:50]}...'")
 
