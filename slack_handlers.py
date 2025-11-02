@@ -169,20 +169,13 @@ def setup_handlers(context: str):
             except:
                 pass
 
-    # DÉSACTIVÉ TEMPORAIREMENT - Slack semble arrêter d'envoyer les événements "message" après inactivité
-    # Utiliser @mention à la place pour être sûr
-    # @app.event("message")
-    def on_message_DISABLED(event, client, logger):
-        return  # Désactivé
+    @app.event("message")
+    def on_message(event, client, logger):
         try:
-            # Log AVANT tout filtrage pour déboguer
-            logger.info(f"📨 Message reçu : '{event.get('text', '')[:120]}…' channel={event.get('channel')} thread={event.get('thread_ts', 'NO_THREAD')} subtype={event.get('subtype', 'NONE')}")
-
+            # Filtrage basique
             if event.get("subtype"):
-                logger.info(f"⏭️ Message ignoré (subtype={event.get('subtype')})")
                 return
             if "thread_ts" not in event:
-                logger.info("⏭️ Message ignoré (pas de thread_ts)")
                 return
 
             thread_ts = event["thread_ts"]
@@ -191,39 +184,16 @@ def setup_handlers(context: str):
             text = (event.get("text") or "").strip()
 
             if user == get_bot_user_id():
-                logger.info("⏭️ Message ignoré (c'est moi)")
                 return
 
-            # Vérifier si le thread a été démarré pour CE bot
-            # Récupérer le premier message du thread pour voir qui a été mentionné
+            # Si le message mentionne un autre bot, ignorer
             import re
             my_bot_id = get_bot_user_id()
+            bot_mentions = re.findall(r'<@(U[A-Z0-9]+)>', text)
+            if bot_mentions and my_bot_id not in bot_mentions:
+                return  # Ce message mentionne un autre bot
 
-            try:
-                # Récupérer le premier message du thread (le message qui a créé le thread)
-                result = client.conversations_history(
-                    channel=channel,
-                    latest=thread_ts,
-                    limit=1,
-                    inclusive=True
-                )
-
-                if result and result.get("messages"):
-                    first_message = result["messages"][0]
-                    first_message_text = first_message.get("text", "")
-
-                    # Chercher les mentions de bots dans le premier message
-                    bot_mentions = re.findall(r'<@(U[A-Z0-9]+)>', first_message_text)
-
-                    if bot_mentions and my_bot_id not in bot_mentions:
-                        # Le thread a été démarré avec une mention à un autre bot
-                        logger.info(f"⏭️ Message ignoré (thread démarré pour un autre bot: {bot_mentions})")
-                        return
-            except Exception as e:
-                logger.warning(f"⚠️ Impossible de vérifier le premier message du thread: {e}")
-                # En cas d'erreur, continuer quand même
-
-            logger.info(f"✅ Message accepté dans thread {thread_ts[:10]}… : '{text[:100]}'")
+            logger.info(f"💬 Message dans thread {thread_ts[:10]}: '{text[:100]}'")
 
             # Répondre à TOUS les messages dans les threads
             # (plus de vérification ACTIVE_THREADS qui était perdue au redémarrage)
