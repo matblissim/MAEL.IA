@@ -186,12 +186,8 @@ def setup_handlers(context: str):
             if user == get_bot_user_id():
                 return
 
-            # Activer automatiquement le thread si le bot y a déjà répondu
-            # (au lieu de se fier à ACTIVE_THREADS qui est perdu au redémarrage)
-            # On vérifie juste que c'est dans un thread
-            if not thread_ts:
-                logger.info("⏭️ Message hors thread, ignoré")
-                return
+            # Répondre à TOUS les messages dans les threads
+            # (plus de vérification ACTIVE_THREADS qui était perdue au redémarrage)
 
             # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
             try:
