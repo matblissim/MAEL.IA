@@ -2,6 +2,7 @@
 Slack action handlers for morning summary interactive buttons.
 """
 
+import re
 from slack_bolt import App
 
 
@@ -67,13 +68,8 @@ def register_morning_summary_handlers(app: App):
             text="\n".join(details)
         )
 
-    # Note: Slack Bolt doesn't support wildcard patterns in action_id
-    # We need to use a constraint function instead
-    def is_country_details_action(action_id: str) -> bool:
-        """Check if action_id is a country details button."""
-        return action_id.startswith('view_country_details_')
-
-    @app.action(is_country_details_action)
+    # Note: Use regex pattern to match all country detail buttons
+    @app.action(re.compile(r"^view_country_details_.*"))
     def handle_country_details(ack, body, action, client):
         """Handle individual country 'Details' button click."""
         ack()
