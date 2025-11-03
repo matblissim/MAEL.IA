@@ -39,16 +39,20 @@ class EventIdCache:
         self.maxlen = maxlen
         self._store = OrderedDict()
 
-    def seen(self, event_id: str) -> bool:
+    def has_seen(self, event_id: str) -> bool:
+        """Vérifie si un événement a déjà été vu (sans l'ajouter)."""
         if not event_id:
             return False
-        if event_id in self._store:
-            self._store.move_to_end(event_id)
-            return True
+        return event_id in self._store
+
+    def mark_seen(self, event_id: str):
+        """Marque un événement comme vu."""
+        if not event_id:
+            return
         self._store[event_id] = True
+        self._store.move_to_end(event_id)
         if len(self._store) > self.maxlen:
             self._store.popitem(last=False)
-        return False
 
 
 seen_events = EventIdCache()
@@ -82,11 +86,16 @@ def setup_handlers(context: str):
 
     @app.event("app_mention")
     def on_app_mention(body, event, client, logger):
+        event_id = body.get("event_id")
+
+        # Vérifier si déjà traité (sans marquer comme vu)
+        if seen_events.has_seen(event_id):
+            logger.info(f"⏭️ Événement {event_id[:12] if event_id else 'NO_ID'}… déjà traité, ignoré")
+            return
+
         try:
-            event_id = body.get("event_id")
-            if seen_events.seen(event_id):
-                return
             if event.get("subtype"):
+                seen_events.mark_seen(event_id)  # Marquer quand même pour éviter les retries
                 return
 
             channel   = event["channel"]
@@ -96,7 +105,7 @@ def setup_handlers(context: str):
 
             bot_user_id = get_bot_user_id()
             prompt = strip_own_mention(raw_text, bot_user_id) or "Dis bonjour (très bref) avec une micro-blague."
-            logger.info(f"🔵 @mention reçue: {prompt[:200]!r}")
+            logger.info(f"🔵 @mention reçue (event={event_id[:12] if event_id else 'NO_ID'}): {prompt[:200]!r}")
 
             # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
             try:
@@ -116,6 +125,7 @@ def setup_handlers(context: str):
                     thread_ts=thread_ts,
                     text="✅ Contexte rechargé ! J'ai mis à jour mes connaissances depuis Notion/DBT."
                 )
+                seen_events.mark_seen(event_id)  # Marquer comme traité avec succès
                 return
 
             # Commande morning summary
@@ -148,6 +158,7 @@ def setup_handlers(context: str):
                         )
                 except Exception as e:
                     logger.warning(f"⚠️ Erreur morning summary: {e}")
+                seen_events.mark_seen(event_id)  # Marquer comme traité
                 return
 
             answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
@@ -161,8 +172,13 @@ def setup_handlers(context: str):
             client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
             ACTIVE_THREADS.add(thread_ts)
             logger.info("✅ Réponse envoyée (thread ajouté aux actifs)")
+
+            # Marquer comme traité APRÈS succès complet
+            seen_events.mark_seen(event_id)
+
         except Exception as e:
-            logger.exception(f"❌ Erreur on_app_mention: {e}")
+            logger.exception(f"❌ Erreur on_app_mention (event={event_id[:12] if event_id else 'NO_ID'}): {e}")
+            # NE PAS marquer comme vu en cas d'erreur, pour permettre retry
             try:
                 client.chat_postMessage(
                     channel=event["channel"],
