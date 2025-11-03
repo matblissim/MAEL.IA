@@ -119,9 +119,9 @@ PY
       defaultValue: "https://github.com/matblissim/MAEL.IA"
       required: true
     - name: git_branch
-      defaultValue: "main"
+      defaultValue: "claude/fix-duplicate-thread-replies-011CUktBeCDj6emvErep39x5"
       required: true
-      description: "Branche pour Franck (ex: main, develop)"
+      description: "Branche pour Franck (ex: main, develop, claude/...)"
 
     - name: BQ_PROJECT
       defaultValue: "teamdata-291012"
