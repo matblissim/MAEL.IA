@@ -121,41 +121,50 @@ def setup_handlers(context: str):
             # Commande morning summary
             if prompt.lower() in ["morning summary", "morning", "bilan quotidien", "bilan matinal", "summary"]:
                 from morning_summary import send_morning_summary
+                import threading
+
                 logger.info(f"🌅 Commande morning summary reçue dans #{channel}")
 
+                # Envoyer une réponse immédiate pour éviter timeout Slack (3s)
                 try:
-                    # Envoyer une réponse immédiate
                     client.chat_postMessage(
                         channel=channel,
                         thread_ts=thread_ts,
-                        text="⏳ Génération du bilan quotidien en cours..."
+                        text="⏳ Génération du bilan quotidien en cours... (prend ~60-120 secondes)"
                     )
-
-                    # Générer et envoyer le bilan dans le même channel
-                    success = send_morning_summary(channel=channel)
-
-                    # Message de confirmation (peut échouer avec broken pipe après opération longue)
-                    # On ignore l'erreur car le rapport est déjà envoyé
-                    try:
-                        if success:
-                            client.chat_postMessage(
-                                channel=channel,
-                                thread_ts=thread_ts,
-                                text="✅ Bilan quotidien envoyé !"
-                            )
-                        else:
-                            client.chat_postMessage(
-                                channel=channel,
-                                thread_ts=thread_ts,
-                                text="❌ Erreur lors de la génération du bilan. Consultez les logs pour plus de détails."
-                            )
-                    except Exception as confirm_error:
-                        # Ignore les erreurs de confirmation (broken pipe après opération longue)
-                        # Le rapport a déjà été envoyé avec succès
-                        logger.info(f"ℹ️ Impossible d'envoyer message de confirmation (rapport déjà envoyé): {confirm_error}")
-
                 except Exception as e:
-                    logger.warning(f"⚠️ Erreur morning summary: {e}")
+                    logger.warning(f"⚠️ Erreur envoi message initial: {e}")
+
+                # Fonction à exécuter en arrière-plan
+                def send_summary_async():
+                    try:
+                        logger.info(f"[Morning Summary Thread] Démarrage génération bilan pour #{channel}")
+                        success = send_morning_summary(channel=channel)
+
+                        # Message de confirmation
+                        try:
+                            if success:
+                                client.chat_postMessage(
+                                    channel=channel,
+                                    thread_ts=thread_ts,
+                                    text="✅ Bilan quotidien envoyé !"
+                                )
+                            else:
+                                client.chat_postMessage(
+                                    channel=channel,
+                                    thread_ts=thread_ts,
+                                    text="❌ Erreur lors de la génération du bilan. Consultez les logs."
+                                )
+                        except Exception as confirm_err:
+                            logger.info(f"[Morning Summary Thread] Message de confirmation non envoyé: {confirm_err}")
+                    except Exception as e:
+                        logger.error(f"[Morning Summary Thread] Erreur: {e}")
+
+                # Lancer en thread séparé pour ne pas bloquer Slack
+                thread = threading.Thread(target=send_summary_async, daemon=True, name="MorningSummaryThread")
+                thread.start()
+                logger.info(f"[Morning Summary] Thread lancé, handler Slack retourne immédiatement")
+
                 return
 
             answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
