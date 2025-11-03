@@ -2,59 +2,11 @@
 """Handlers pour les événements Slack."""
 
 import re
-import logging
-import time
-import errno
 from collections import OrderedDict
-from typing import Optional, Callable, Any
-from functools import lru_cache, wraps
-from config import app, BOT_NAME
+from typing import Optional
+from config import app
 from claude_client import ask_claude, format_sql_queries
 from thread_memory import get_last_queries
-
-# Configuration du logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------
-# Gestion des Broken Pipe avec Retry
-# ---------------------------------------
-def retry_on_broken_pipe(max_retries=3, backoff_factor=2):
-    """Décorateur pour retry automatique en cas de broken pipe ou erreurs réseau."""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            last_exception = None
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
-                    last_exception = e
-                    # Vérifier si c'est bien un broken pipe (errno 32)
-                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
-                        # Si c'est une autre erreur OSError, on ne retry pas
-                        raise
-
-                    if attempt < max_retries - 1:
-                        wait_time = backoff_factor ** attempt
-                        logger.warning(f"⚠️ {e.__class__.__name__} détecté - Retry {attempt + 1}/{max_retries} dans {wait_time}s...")
-                        time.sleep(wait_time)
-                    else:
-                        logger.error(f"❌ {e.__class__.__name__} persistant après {max_retries} tentatives")
-                except Exception as e:
-                    # Pour les autres exceptions, on ne retry pas
-                    raise
-
-            # Si on arrive ici, toutes les tentatives ont échoué
-            raise last_exception
-
-        return wrapper
-    return decorator
 
 
 # ---------------------------------------
@@ -101,13 +53,7 @@ class EventIdCache:
 
 seen_events = EventIdCache()
 BOT_USER_ID = None
-
-# Cache pour bot_is_in_thread avec TTL (Time To Live)
-_thread_cache = {}  # Format: {thread_ts: (is_in_thread, timestamp)}
-THREAD_CACHE_TTL = 300  # 5 minutes de cache
-
-# Monitoring des événements reçus
-_last_event_time = time.time()  # Timestamp du dernier événement reçu
+ACTIVE_THREADS = set()
 
 
 def get_bot_user_id():
@@ -117,87 +63,6 @@ def get_bot_user_id():
         auth = app.client.auth_test()
         BOT_USER_ID = auth.get("user_id")
     return BOT_USER_ID
-
-
-def bot_is_in_thread(channel: str, thread_ts: str) -> bool:
-    """Vérifie si le bot a déjà participé à ce thread (avec cache tolérant aux erreurs)."""
-    global _thread_cache
-
-    # Vérifier le cache
-    current_time = time.time()
-    cached_data = None
-    if thread_ts in _thread_cache:
-        cached_result, cached_time = _thread_cache[thread_ts]
-        cache_age = current_time - cached_time
-
-        if cache_age < THREAD_CACHE_TTL:
-            logger.debug(f"💾 Cache hit pour thread {thread_ts[:10]}... -> {cached_result} (age: {cache_age:.0f}s)")
-            return cached_result
-        else:
-            # Cache expiré mais on le garde pour fallback en cas d'erreur
-            cached_data = (cached_result, cached_time)
-            logger.debug(f"💾 Cache expiré pour thread {thread_ts[:10]}... (age: {cache_age:.0f}s) - Rafraîchissement nécessaire")
-
-    try:
-        bot_id = get_bot_user_id()
-        if not bot_id:
-            logger.warning("⚠️ Impossible de récupérer l'ID du bot")
-            # Utiliser le cache expiré si disponible
-            if cached_data:
-                logger.warning(f"⚠️ Utilisation du cache expiré (fallback) -> {cached_data[0]}")
-                return cached_data[0]
-            return False
-
-        # Récupérer les réponses du thread
-        logger.debug(f"🔍 Appel API conversations_replies pour thread {thread_ts[:10]}...")
-        result = app.client.conversations_replies(
-            channel=channel,
-            ts=thread_ts,
-            limit=200  # Augmenté de 100 à 200 pour les threads longs
-        )
-
-        messages = result.get("messages", [])
-        logger.debug(f"🔍 Thread {thread_ts[:10]}... contient {len(messages)} message(s)")
-
-        # Vérifier si le bot a posté dans ce thread
-        is_in_thread = False
-        for msg in messages:
-            if msg.get("user") == bot_id:
-                is_in_thread = True
-                logger.debug(f"✅ Bot trouvé dans le thread à ts={msg.get('ts', 'unknown')[:10]}...")
-                break
-
-        # Mettre en cache le résultat
-        _thread_cache[thread_ts] = (is_in_thread, current_time)
-
-        if is_in_thread:
-            logger.info(f"✅ Bot détecté dans thread {thread_ts[:10]}... (mis en cache)")
-        else:
-            logger.debug(f"⏭️ Bot non détecté dans thread {thread_ts[:10]}... (mis en cache)")
-
-        return is_in_thread
-
-    except Exception as e:
-        logger.error(f"❌ Erreur lors de la vérification du thread {thread_ts[:10]}...: {e}")
-
-        # En cas d'erreur, utiliser le cache expiré si disponible
-        if cached_data:
-            logger.warning(f"⚠️ Erreur API - Utilisation du cache expiré (fallback) -> {cached_data[0]}")
-            return cached_data[0]
-
-        # Sinon, supposer que le bot n'est pas dans le thread
-        logger.warning(f"⚠️ Erreur API et pas de cache - Considère que le bot n'est PAS dans le thread")
-        return False
-
-
-def invalidate_thread_cache(thread_ts: str):
-    """Met à jour le cache pour indiquer que le bot est dans le thread (appelé après que le bot poste)."""
-    global _thread_cache
-    current_time = time.time()
-    # Au lieu de supprimer le cache, on le met à True car on vient de poster
-    # Cela évite la race condition où l'API Slack n'a pas encore le message du bot
-    _thread_cache[thread_ts] = (True, current_time)
-    logger.debug(f"✅ Cache mis à jour pour thread {thread_ts[:10]}... -> True (bot vient de poster)")
 
 
 def strip_own_mention(text: str, bot_user_id: Optional[str]) -> str:
@@ -217,10 +82,7 @@ def setup_handlers(context: str):
 
     @app.event("app_mention")
     def on_app_mention(body, event, client, logger):
-        global _last_event_time
         try:
-            _last_event_time = time.time()  # Marquer qu'on a reçu un événement
-
             event_id = body.get("event_id")
             if seen_events.seen(event_id):
                 return
@@ -236,7 +98,7 @@ def setup_handlers(context: str):
             prompt = strip_own_mention(raw_text, bot_user_id) or "Dis bonjour (très bref) avec une micro-blague."
             logger.info(f"🔵 @mention reçue: {prompt[:200]!r}")
 
-            # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
+            # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
             try:
                 client.reactions_add(
                     channel=channel,
@@ -254,7 +116,6 @@ def setup_handlers(context: str):
                     thread_ts=thread_ts,
                     text="✅ Contexte rechargé ! J'ai mis à jour mes connaissances depuis Notion/DBT."
                 )
-                invalidate_thread_cache(thread_ts)
                 return
 
             # Commande morning summary
@@ -268,7 +129,6 @@ def setup_handlers(context: str):
                     thread_ts=thread_ts,
                     text="⏳ Génération du bilan quotidien en cours..."
                 )
-                invalidate_thread_cache(thread_ts)
 
                 # Générer et envoyer le bilan dans le même channel
                 success = send_morning_summary(channel=channel)
@@ -279,37 +139,15 @@ def setup_handlers(context: str):
                         thread_ts=thread_ts,
                         text="✅ Bilan quotidien envoyé !"
                     )
-                    invalidate_thread_cache(thread_ts)
                 else:
                     client.chat_postMessage(
                         channel=channel,
                         thread_ts=thread_ts,
                         text="❌ Erreur lors de la génération du bilan. Consultez les logs pour plus de détails."
                     )
-                    invalidate_thread_cache(thread_ts)
                 return
 
-            # Appel à Claude avec retry automatique en cas de broken pipe
-            logger.info("🤖 Appel à Claude...")
-            answer = None
-            for attempt in range(3):
-                try:
-                    answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
-                    logger.info("✅ Réponse de Claude reçue")
-                    break
-                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
-                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
-                        raise
-                    if attempt < 2:
-                        wait_time = 2 ** attempt
-                        logger.warning(f"⚠️ Broken pipe lors de l'appel à Claude - Retry {attempt + 1}/3 dans {wait_time}s...")
-                        time.sleep(wait_time)
-                    else:
-                        logger.error(f"❌ Broken pipe persistant après 3 tentatives - Abandon")
-                        raise
-
-            if answer is None:
-                answer = "⚠️ Désolé, j'ai rencontré un problème de connexion. Peux-tu réessayer ?"
+            answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
 
             # Ajouter les requêtes SQL seulement si demandé
             if any(k in prompt.lower() for k in ["sql", "requête", "requete", "query", "liste", "export", "j'aimerais avoir", "notion", "détail", "detail"]):
@@ -317,172 +155,41 @@ def setup_handlers(context: str):
                 if queries:
                     answer += format_sql_queries(queries)
 
-            # Envoi de la réponse avec retry en cas de broken pipe
-            logger.info("📤 Envoi de la réponse à Slack...")
-            for attempt in range(3):
-                try:
-                    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
-                    invalidate_thread_cache(thread_ts)
-                    logger.info(f"✅ Réponse envoyée dans thread {thread_ts[:10]}...")
-                    break
-                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
-                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
-                        raise
-                    if attempt < 2:
-                        wait_time = 2 ** attempt
-                        logger.warning(f"⚠️ Broken pipe lors de l'envoi Slack - Retry {attempt + 1}/3 dans {wait_time}s...")
-                        time.sleep(wait_time)
-                    else:
-                        logger.error(f"❌ Broken pipe persistant lors de l'envoi Slack après 3 tentatives")
-                        raise
+            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
+            ACTIVE_THREADS.add(thread_ts)
+            logger.info("✅ Réponse envoyée (thread ajouté aux actifs)")
         except Exception as e:
             logger.exception(f"❌ Erreur on_app_mention: {e}")
             try:
-                thread_ts_error = event.get("thread_ts", event["ts"])
                 client.chat_postMessage(
                     channel=event["channel"],
-                    thread_ts=thread_ts_error,
+                    thread_ts=event.get("thread_ts", event["ts"]),
                     text=f"⚠️ Oups, j'ai eu un souci : `{str(e)[:200]}`"
                 )
-                invalidate_thread_cache(thread_ts_error)
             except:
                 pass
 
     @app.event("message")
-    def on_message(body, event, client, logger):
-        global _last_event_time
+    def on_message(event, client, logger):
         try:
-            _last_event_time = time.time()  # Marquer qu'on a reçu un événement
-
-            # LOG COMPLET DE L'ÉVÉNEMENT POUR DEBUG
-            logger.info("="*80)
-            logger.info("📥 NOUVEL ÉVÉNEMENT MESSAGE REÇU")
-            logger.info(f"Event keys: {list(event.keys())}")
-
-            # Déduplication des événements - UTILISER LE MÊME EVENT_ID que on_app_mention
-            event_id = body.get("event_id")  # Même ID que on_app_mention pour éviter double traitement
-            logger.info(f"🔑 Event ID pour déduplication: {event_id}")
-
-            if event_id and seen_events.seen(event_id):
-                logger.info(f"⏭️ Message DÉDUPLIQUÉ (event_id={event_id}) - IGNORÉ")
-                logger.info("="*80)
-                return
-
-            # Log détaillé du message reçu
-            text_preview = event.get('text', '')[:120] if event.get('text') else ''
-            channel_id = event.get('channel', 'unknown')
-            thread_ts = event.get('thread_ts', 'NO_THREAD')
-            msg_ts = event.get('ts', 'unknown')
-            user = event.get("user", "unknown")
-            subtype = event.get("subtype", "NONE")
-
-            logger.info(f"📨 Message: '{text_preview}...'")
-            logger.info(f"   Channel: {channel_id}")
-            logger.info(f"   Thread TS: {thread_ts}")
-            logger.info(f"   Message TS: {msg_ts}")
-            logger.info(f"   User: {user}")
-            logger.info(f"   Subtype: {subtype}")
-
-            # Ignorer les messages avec subtype (éditions, suppressions, etc.)
+            logger.info(f"📨 Message reçu : '{event.get('text', '')[:120]}…' channel={event.get('channel')} thread={event.get('thread_ts', 'NO_THREAD')}")
             if event.get("subtype"):
-                logger.info(f"⏭️ Message IGNORÉ (subtype={event.get('subtype')})")
-                logger.info("="*80)
+                return
+            if "thread_ts" not in event:
                 return
 
+            thread_ts = event["thread_ts"]
             channel = event["channel"]
             user = event.get("user", "")
             text = (event.get("text") or "").strip()
 
-            # Ignorer les messages du bot lui-même
-            bot_id = get_bot_user_id()
-            logger.info(f"🤖 Bot ID: {bot_id}")
-
-            if user == bot_id:
-                logger.info(f"⏭️ Message IGNORÉ (envoyé par le bot lui-même)")
-                logger.info("="*80)
+            if user == get_bot_user_id():
+                return
+            if thread_ts not in ACTIVE_THREADS:
+                logger.info(f"⏭️ Thread {thread_ts[:10]}… non actif")
                 return
 
-            # Vérifier si c'est une mention du bot
-            is_bot_mentioned = f"<@{bot_id}>" in text
-            logger.info(f"🔍 Bot mentionné dans le message: {is_bot_mentioned}")
-
-            # Si le bot est mentionné, laisser on_app_mention s'en occuper
-            if is_bot_mentioned:
-                logger.info("⏭️ Message IGNORÉ (app_mention sera géré par on_app_mention handler)")
-                logger.info("="*80)
-                return
-
-            # Si pas dans un thread, ignorer
-            if "thread_ts" not in event:
-                logger.info("⏭️ Message IGNORÉ (pas dans un thread ET pas de mention)")
-                logger.info("="*80)
-                return
-            else:
-                # C'est dans un thread
-                thread_ts = event["thread_ts"]
-
-                # Vérifier si le bot est dans ce thread
-                # (les mentions sont déjà filtrées plus haut et gérées par on_app_mention)
-                logger.info(f"🔍 Vérification si le bot est dans le thread {thread_ts[:10]}...")
-                is_in_thread = bot_is_in_thread(channel, thread_ts)
-                logger.info(f"✅ Résultat vérification: is_in_thread={is_in_thread}")
-
-                if not is_in_thread:
-                    logger.info(f"⏭️ Thread IGNORÉ (bot pas actif dans ce thread)")
-                    logger.info("="*80)
-                    return
-
-            # Vérifier le nombre de messages dans le thread (limite à 40)
-            # Mais seulement si c'est un VRAI thread (pas un message direct au channel)
-            is_real_thread = "thread_ts" in event and event.get("thread_ts") != event.get("ts")
-
-            if is_real_thread:
-                try:
-                    thread_info = app.client.conversations_replies(
-                        channel=channel,
-                        ts=thread_ts,
-                        limit=1000  # On compte tous les messages
-                    )
-                    message_count = len(thread_info.get("messages", []))
-                    logger.debug(f"📊 Thread {thread_ts[:10]}... contient {message_count} messages")
-
-                    # Si plus de 40 messages, arrêter de répondre automatiquement (sauf si mention)
-                    if message_count >= 40 and not is_bot_mentioned:
-                        logger.info(f"🛑 Thread {thread_ts[:10]}... a atteint la limite de {message_count} messages (max: 40)")
-                        logger.info(f"⏭️ Arrêt des réponses automatiques pour éviter une conversation infinie")
-                        # Envoyer un message pour informer l'utilisateur
-                        try:
-                            client.chat_postMessage(
-                                channel=channel,
-                                thread_ts=thread_ts,
-                                text=f"⚠️ Ce thread a atteint la limite de 40 messages. Pour continuer, mentionnez-moi avec @{BOT_NAME} ou commencez un nouveau thread !"
-                            )
-                            invalidate_thread_cache(thread_ts)
-                        except Exception as msg_error:
-                            logger.warning(f"⚠️ Impossible d'envoyer le message de limite: {msg_error}")
-                        return
-                except Exception as count_error:
-                    # En cas d'erreur, continuer quand même (on ne bloque pas sur cette vérification)
-                    logger.warning(f"⚠️ Impossible de compter les messages du thread: {count_error}")
-
-            logger.info(f"🎯 Traitement du message - TRAITEMENT EN COURS")
-            logger.info(f"📝 Texte brut: '{text[:100]}'")
-
-            # Retirer la mention du bot du texte avant de l'envoyer à Claude
-            if is_bot_mentioned:
-                text_clean = re.sub(rf"<@{bot_id}>\s*", "", text).strip()
-                logger.info(f"📝 Texte nettoyé (sans mention): '{text_clean[:100]}'")
-            else:
-                text_clean = text
-
-            if not text_clean:
-                # Si le message ne contient que la mention, demander de clarifier
-                text_clean = "Bonjour ! Comment puis-je t'aider ?"
-                logger.info(f"📝 Message vide après nettoyage → Utilisation d'un prompt par défaut")
-
-            logger.info("="*80)
-
-            # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
+            # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
             try:
                 client.reactions_add(
                     channel=channel,
@@ -492,61 +199,22 @@ def setup_handlers(context: str):
             except Exception as reaction_error:
                 logger.warning(f"⚠️ Impossible d'ajouter la réaction : {reaction_error}")
 
-            # Appel à Claude avec retry automatique en cas de broken pipe
-            logger.info("🤖 Appel à Claude...")
-            answer = None
-            for attempt in range(3):
-                try:
-                    answer = ask_claude(text_clean, thread_ts, CURRENT_CONTEXT)
-                    logger.info("✅ Réponse de Claude reçue")
-                    break
-                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
-                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
-                        raise
-                    if attempt < 2:
-                        wait_time = 2 ** attempt
-                        logger.warning(f"⚠️ Broken pipe lors de l'appel à Claude - Retry {attempt + 1}/3 dans {wait_time}s...")
-                        time.sleep(wait_time)
-                    else:
-                        logger.error(f"❌ Broken pipe persistant après 3 tentatives - Abandon")
-                        raise
-
-            if answer is None:
-                answer = "⚠️ Désolé, j'ai rencontré un problème de connexion. Peux-tu réessayer ?"
+            answer = ask_claude(text, thread_ts, CURRENT_CONTEXT)
 
             if any(k in text.lower() for k in ["sql", "requête", "requete", "query"]):
                 queries = get_last_queries(thread_ts)
                 if queries:
                     answer += format_sql_queries(queries)
 
-            # Envoi de la réponse avec retry en cas de broken pipe
-            logger.info("📤 Envoi de la réponse à Slack...")
-            for attempt in range(3):
-                try:
-                    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
-                    invalidate_thread_cache(thread_ts)
-                    logger.info(f"✅ Réponse envoyée dans thread {thread_ts[:10]}...")
-                    break
-                except (BrokenPipeError, ConnectionError, ConnectionResetError, OSError) as e:
-                    if isinstance(e, OSError) and e.errno != errno.EPIPE:
-                        raise
-                    if attempt < 2:
-                        wait_time = 2 ** attempt
-                        logger.warning(f"⚠️ Broken pipe lors de l'envoi Slack - Retry {attempt + 1}/3 dans {wait_time}s...")
-                        time.sleep(wait_time)
-                    else:
-                        logger.error(f"❌ Broken pipe persistant lors de l'envoi Slack après 3 tentatives")
-                        raise
+            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
+            logger.info("✅ Réponse envoyée dans le thread")
         except Exception as e:
             logger.exception(f"❌ Erreur on_message: {e}")
             try:
-                thread_ts_error = event.get("thread_ts")
-                if thread_ts_error:
-                    client.chat_postMessage(
-                        channel=event.get("channel"),
-                        thread_ts=thread_ts_error,
-                        text=f"⚠️ Erreur : `{str(e)[:200]}`"
-                    )
-                    invalidate_thread_cache(thread_ts_error)
+                client.chat_postMessage(
+                    channel=event.get("channel"),
+                    thread_ts=event.get("thread_ts"),
+                    text=f"⚠️ Erreur : `{str(e)[:200]}`"
+                )
             except:
                 pass
