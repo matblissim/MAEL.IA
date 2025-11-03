@@ -349,7 +349,7 @@ def setup_handlers(context: str):
                 pass
 
     @app.event("message")
-    def on_message(event, client, logger):
+    def on_message(body, event, client, logger):
         global _last_event_time
         try:
             _last_event_time = time.time()  # Marquer qu'on a reçu un événement
@@ -359,8 +359,8 @@ def setup_handlers(context: str):
             logger.info("📥 NOUVEL ÉVÉNEMENT MESSAGE REÇU")
             logger.info(f"Event keys: {list(event.keys())}")
 
-            # Déduplication des événements
-            event_id = event.get("event_ts") or event.get("ts")  # Utiliser event_ts ou ts comme ID unique
+            # Déduplication des événements - UTILISER LE MÊME EVENT_ID que on_app_mention
+            event_id = body.get("event_id")  # Même ID que on_app_mention pour éviter double traitement
             logger.info(f"🔑 Event ID pour déduplication: {event_id}")
 
             if event_id and seen_events.seen(event_id):
