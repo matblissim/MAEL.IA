@@ -2,8 +2,6 @@
 """Point d'entrée principal - VERSION RETOUR AUX SOURCES (comme il y a 3 jours)"""
 
 import os
-import time
-import threading
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 from config import app, bq_client, bq_client_normalized, notion_client, BOT_NAME
@@ -11,15 +9,6 @@ from context_loader import load_context
 from slack_handlers import setup_handlers
 from morning_summary import send_morning_summary
 from morning_summary_handlers import register_morning_summary_handlers
-
-
-def heartbeat():
-    """Log toutes les 2 minutes pour confirmer que le bot tourne."""
-    count = 0
-    while True:
-        time.sleep(120)  # 2 minutes
-        count += 1
-        print(f"💓 Heartbeat #{count} - {BOT_NAME} actif - {time.strftime('%H:%M:%S')}")
 
 
 def main():
@@ -104,14 +93,9 @@ def main():
     else:
         print("⏰ Bilan quotidien désactivé (MORNING_SUMMARY_ENABLED=false)")
 
-    # Démarrage du heartbeat pour diagnostiquer les messages perdus
-    heartbeat_thread = threading.Thread(target=heartbeat, daemon=True, name=f"{BOT_NAME}-Heartbeat")
-    heartbeat_thread.start()
-    print("💓 Heartbeat activé (log toutes les 2 minutes pour diagnostic)\n")
-
     # Démarrage du bot en Socket Mode - SIMPLE, SANS KEEP-ALIVE
     # (ça marchait bien il y a 3 jours comme ça)
-    print("🚀 Démarrage Socket Mode (version simple - comme avant)\n")
+    print("\n🚀 Démarrage Socket Mode (version simple - comme avant)\n")
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
 
 
