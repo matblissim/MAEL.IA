@@ -15,11 +15,12 @@ from morning_summary_handlers import register_morning_summary_handlers
 
 def keep_alive():
     """Thread qui maintient la connexion Socket Mode active avec un ping périodique."""
+    ping_interval = 30  # Ping toutes les 30 secondes (évite déconnexion pendant morning summary)
     while True:
-        time.sleep(300)  # Ping toutes les 5 minutes
+        time.sleep(ping_interval)
         try:
             app.client.auth_test()
-            print("🔄 Keep-alive ping OK")
+            print(f"🔄 Keep-alive ping OK (intervalle: {ping_interval}s)")
         except Exception as e:
             print(f"⚠️ Keep-alive ping error: {e}")
 
@@ -109,7 +110,7 @@ def main():
     # Démarrage du thread keep-alive pour éviter le broken pipe
     keep_alive_thread = threading.Thread(target=keep_alive, daemon=True, name=f"{BOT_NAME}-KeepAlive")
     keep_alive_thread.start()
-    print(f"🔄 Keep-alive activé (ping toutes les 5 min)\n")
+    print(f"🔄 Keep-alive activé (ping toutes les 30s pour maintenir connexion pendant morning summary)\n")
 
     # Démarrage du bot en Socket Mode
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
