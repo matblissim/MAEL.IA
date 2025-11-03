@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from slack_bolt import App
 from anthropic import Anthropic
+import httpx
 from google.cloud import bigquery
 from notion_client import Client as NotionClient
 
@@ -37,7 +38,27 @@ HISTORY_LIMIT   = int(os.getenv("HISTORY_LIMIT", "20"))           # limite histo
 
 # ---------- Slack / Anthropic ----------
 app = App(token=os.environ["SLACK_BOT_TOKEN"], process_before_response=False)
-claude = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+# Configuration HTTP client avec connection pooling désactivé
+# pour éviter les broken pipe sur connexions réutilisées stale
+http_client = httpx.Client(
+    timeout=120.0,
+    limits=httpx.Limits(
+        max_connections=5,        # Max 5 connexions simultanées
+        max_keepalive_connections=0,  # ❗ Désactive keep-alive → force nouvelle connexion
+        keepalive_expiry=0.0      # Expire immédiatement les connexions
+    ),
+    follow_redirects=True
+)
+
+# Configuration du client Anthropic avec HTTP client custom
+# pour éviter les broken pipe et autres erreurs réseau
+claude = Anthropic(
+    api_key=os.environ["ANTHROPIC_API_KEY"],
+    timeout=120.0,  # Timeout global de 120 secondes
+    max_retries=2,  # Retry automatique au niveau HTTP (en plus du retry applicatif)
+    http_client=http_client  # ❗ Client HTTP custom sans keep-alive
+)
 
 # ---------- BigQuery ----------
 bq_client = None
