@@ -118,11 +118,14 @@ def create_app():
     return flask_app
 
 
-if __name__ == "__main__":
-    flask_app = create_app()
+# Instance Flask pour gunicorn
+# gunicorn utilisera: gunicorn app_webhook:flask_app
+flask_app = create_app()
 
-    # Lancer le serveur Flask
-    # En production, utiliser gunicorn ou uwsgi au lieu de Flask dev server
+
+if __name__ == "__main__":
+    # Lancer le serveur Flask en mode développement
+    # En production, utiliser gunicorn: gunicorn --bind 0.0.0.0:5000 app_webhook:flask_app
     port = int(os.getenv("PORT", "5000"))
     flask_app.run(
         host="0.0.0.0",  # Écoute sur toutes les interfaces
