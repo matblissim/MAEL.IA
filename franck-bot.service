@@ -1,0 +1,17 @@
+[Unit]
+Description=Franck Slack Bot (Event API)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/rundeck/MAEL.IA
+Environment="PATH=/var/lib/rundeck/MAEL.IA/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/var/lib/rundeck/MAEL.IA/.venv/bin/python3 /var/lib/rundeck/MAEL.IA/app_dual_mode.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/franck-bot.log
+StandardError=append:/var/log/franck-bot.error.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=ngrok tunnel for Franck Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/ngrok http 5000
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/ngrok.log
+StandardError=append:/var/log/ngrok.error.log
+
+[Install]
+WantedBy=multi-user.target
