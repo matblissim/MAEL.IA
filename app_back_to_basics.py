@@ -1,5 +1,5 @@
 # app.py
-"""Point d'entrée principal de l'application MAEL.IA (bot Slack)."""
+"""Point d'entrée principal - VERSION RETOUR AUX SOURCES (comme il y a 3 jours)"""
 
 import os
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -93,7 +93,9 @@ def main():
     else:
         print("⏰ Bilan quotidien désactivé (MORNING_SUMMARY_ENABLED=false)")
 
-    # Démarrage du bot en Socket Mode
+    # Démarrage du bot en Socket Mode - SIMPLE, SANS KEEP-ALIVE
+    # (ça marchait bien il y a 3 jours comme ça)
+    print("\n🚀 Démarrage Socket Mode (version simple - comme avant)\n")
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
 
 

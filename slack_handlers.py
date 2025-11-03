@@ -98,7 +98,7 @@ def setup_handlers(context: str):
             prompt = strip_own_mention(raw_text, bot_user_id) or "Dis bonjour (très bref) avec une micro-blague."
             logger.info(f"🔵 @mention reçue: {prompt[:200]!r}")
 
-            # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
+            # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
             try:
                 client.reactions_add(
                     channel=channel,
@@ -123,28 +123,31 @@ def setup_handlers(context: str):
                 from morning_summary import send_morning_summary
                 logger.info(f"🌅 Commande morning summary reçue dans #{channel}")
 
-                # Envoyer une réponse immédiate
-                client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text="⏳ Génération du bilan quotidien en cours..."
-                )
-
-                # Générer et envoyer le bilan dans le même channel
-                success = send_morning_summary(channel=channel)
-
-                if success:
+                try:
+                    # Envoyer une réponse immédiate
                     client.chat_postMessage(
                         channel=channel,
                         thread_ts=thread_ts,
-                        text="✅ Bilan quotidien envoyé !"
+                        text="⏳ Génération du bilan quotidien en cours..."
                     )
-                else:
-                    client.chat_postMessage(
-                        channel=channel,
-                        thread_ts=thread_ts,
-                        text="❌ Erreur lors de la génération du bilan. Consultez les logs pour plus de détails."
-                    )
+
+                    # Générer et envoyer le bilan dans le même channel
+                    success = send_morning_summary(channel=channel)
+
+                    if success:
+                        client.chat_postMessage(
+                            channel=channel,
+                            thread_ts=thread_ts,
+                            text="✅ Bilan quotidien envoyé !"
+                        )
+                    else:
+                        client.chat_postMessage(
+                            channel=channel,
+                            thread_ts=thread_ts,
+                            text="❌ Erreur lors de la génération du bilan. Consultez les logs pour plus de détails."
+                        )
+                except Exception as e:
+                    logger.warning(f"⚠️ Erreur morning summary: {e}")
                 return
 
             answer = ask_claude(prompt, thread_ts, CURRENT_CONTEXT)
@@ -189,7 +192,7 @@ def setup_handlers(context: str):
                 logger.info(f"⏭️ Thread {thread_ts[:10]}… non actif")
                 return
 
-            # Ajouter réaction 👀 pour indiquer que le bot s'en occupe
+            # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
             try:
                 client.reactions_add(
                     channel=channel,
