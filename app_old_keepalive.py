@@ -1,7 +1,11 @@
 # app.py
-"""Point d'entrée principal - VERSION RETOUR AUX SOURCES (comme il y a 3 jours)"""
+"""Point d'entrée principal de l'application MAEL.IA (bot Slack)."""
 
 import os
+import sys
+import time
+import logging
+import threading
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 from config import app, bq_client, bq_client_normalized, notion_client, BOT_NAME
@@ -9,6 +13,49 @@ from context_loader import load_context
 from slack_handlers import setup_handlers
 from morning_summary import send_morning_summary
 from morning_summary_handlers import register_morning_summary_handlers
+
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+
+def keep_alive():
+    """Thread qui maintient la connexion Socket Mode active avec un ping périodique ULTRA-AGRESSIF."""
+    ping_interval = 10  # Ping toutes les 10 SECONDES (ULTRA agressif)
+    consecutive_failures = 0
+    max_failures = 2  # Réduit à 2 pour alerter plus vite
+    ping_count = 0
+
+    logger.info(f"🔄 Keep-alive démarré - ping toutes les {ping_interval}s (ULTRA-AGRESSIF)")
+    logger.info(f"🔄 Monitoring actif - Le bot va pinger Slack toutes les {ping_interval}s pour maintenir la connexion")
+
+    while True:
+        time.sleep(ping_interval)
+        ping_count += 1
+        try:
+            result = app.client.auth_test()
+            consecutive_failures = 0  # Reset le compteur en cas de succès
+            # Log toutes les 6 pings (= 1 minute) au lieu de debug
+            if ping_count % 6 == 0:
+                logger.info(f"✅ Keep-alive OK (#{ping_count}) - Connexion stable")
+        except Exception as e:
+            consecutive_failures += 1
+            logger.error(f"⚠️ Keep-alive ping #{ping_count} ÉCHOUÉ ({consecutive_failures}/{max_failures}): {e}")
+
+            # Si trop d'échecs consécutifs, logger une alerte CRITIQUE
+            if consecutive_failures >= max_failures:
+                logger.critical("="*80)
+                logger.critical(f"🚨🚨🚨 ALERTE CRITIQUE: {max_failures} échecs consécutifs du keep-alive !")
+                logger.critical(f"🚨 La connexion Socket Mode est PERDUE !")
+                logger.critical(f"🚨 Le bot va RATER des messages !")
+                logger.critical(f"🚨 ACTION REQUISE: REDÉMARREZ LE BOT IMMÉDIATEMENT !")
+                logger.critical("="*80)
+                # Reset le compteur pour éviter de spammer les logs
+                consecutive_failures = 0
 
 
 def main():
@@ -93,10 +140,26 @@ def main():
     else:
         print("⏰ Bilan quotidien désactivé (MORNING_SUMMARY_ENABLED=false)")
 
-    # Démarrage du bot en Socket Mode - SIMPLE, SANS KEEP-ALIVE
-    # (ça marchait bien il y a 3 jours comme ça)
-    print("\n🚀 Démarrage Socket Mode (version simple - comme avant)\n")
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+    # Démarrage du thread keep-alive pour éviter le broken pipe
+    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True, name=f"{BOT_NAME}-KeepAlive")
+    keep_alive_thread.start()
+    logger.info(f"🔄 Keep-alive activé (ping toutes les 10s - ULTRA-AGRESSIF)")
+    logger.info(f"🔄 Vous verrez un log '✅ Keep-alive OK' toutes les minutes si la connexion est stable")
+
+    # Démarrage du bot en Socket Mode avec gestion d'erreur
+    logger.info("🚀 Démarrage du Socket Mode Handler...")
+    try:
+        handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
+        logger.info("✅ Socket Mode Handler initialisé")
+        logger.info(f"🎧 {BOT_NAME} écoute les messages Slack...")
+        handler.start()
+    except KeyboardInterrupt:
+        logger.info("⏹️ Arrêt du bot (Ctrl+C)")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"❌ Erreur critique au démarrage du Socket Mode: {e}")
+        logger.exception(e)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
