@@ -406,35 +406,31 @@ def setup_handlers(context: str):
             is_bot_mentioned = f"<@{bot_id}>" in text
             logger.info(f"🔍 Bot mentionné dans le message: {is_bot_mentioned}")
 
-            # Si pas dans un thread
+            # Si le bot est mentionné, laisser on_app_mention s'en occuper
+            if is_bot_mentioned:
+                logger.info("⏭️ Message IGNORÉ (app_mention sera géré par on_app_mention handler)")
+                logger.info("="*80)
+                return
+
+            # Si pas dans un thread, ignorer
             if "thread_ts" not in event:
-                # Si le bot est mentionné, on traite quand même (message direct au channel)
-                if is_bot_mentioned:
-                    logger.info("📢 Message direct au channel AVEC mention du bot → TRAITEMENT")
-                    # Créer un thread_ts avec le ts du message (pas un vrai thread)
-                    thread_ts = event["ts"]
-                    logger.info(f"   Création d'un pseudo-thread avec ts={thread_ts}")
-                else:
-                    # Pas de mention + pas de thread = on ignore
-                    logger.info("⏭️ Message IGNORÉ (pas dans un thread ET pas de mention)")
-                    logger.info("="*80)
-                    return
+                logger.info("⏭️ Message IGNORÉ (pas dans un thread ET pas de mention)")
+                logger.info("="*80)
+                return
             else:
                 # C'est dans un thread
                 thread_ts = event["thread_ts"]
 
-                # Vérifier si le bot est dans ce thread (sauf si c'est une mention)
-                if not is_bot_mentioned:
-                    logger.info(f"🔍 Vérification si le bot est dans le thread {thread_ts[:10]}...")
-                    is_in_thread = bot_is_in_thread(channel, thread_ts)
-                    logger.info(f"✅ Résultat vérification: is_in_thread={is_in_thread}")
+                # Vérifier si le bot est dans ce thread
+                # (les mentions sont déjà filtrées plus haut et gérées par on_app_mention)
+                logger.info(f"🔍 Vérification si le bot est dans le thread {thread_ts[:10]}...")
+                is_in_thread = bot_is_in_thread(channel, thread_ts)
+                logger.info(f"✅ Résultat vérification: is_in_thread={is_in_thread}")
 
-                    if not is_in_thread:
-                        logger.info(f"⏭️ Thread IGNORÉ (bot pas actif dans ce thread)")
-                        logger.info("="*80)
-                        return
-                else:
-                    logger.info(f"📢 Mention du bot détectée dans thread {thread_ts[:10]}... → TRAITEMENT FORCÉ")
+                if not is_in_thread:
+                    logger.info(f"⏭️ Thread IGNORÉ (bot pas actif dans ce thread)")
+                    logger.info("="*80)
+                    return
 
             # Vérifier le nombre de messages dans le thread (limite à 20)
             # Mais seulement si c'est un VRAI thread (pas un message direct au channel)
