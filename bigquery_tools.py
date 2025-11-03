@@ -450,4 +450,17 @@ def execute_bigquery(query: str, thread_ts: str, project: str = "default") -> st
             # Juste le JSON de base
             return json_output or "Aucun résultat."
     except Exception as e:
-        return f"❌ Erreur BigQuery: {str(e)}"
+        error_msg = str(e)
+        # Broken pipe = connexion BigQuery stale
+        if "[Errno 32]" in error_msg or "Broken pipe" in error_msg:
+            print(f"[BQ] ⚠️ BROKEN PIPE détecté - connexion BigQuery fermée/stale")
+            print(f"[BQ] 💡 Solution: Réessayer la commande ou redémarrer le bot")
+            # Tenter de recréer les clients pour la prochaine fois
+            try:
+                from config import init_bigquery_clients
+                print(f"[BQ] 🔄 Tentative de réinitialisation des clients BigQuery...")
+                init_bigquery_clients()
+            except:
+                pass
+            return "❌ Erreur de connexion BigQuery (broken pipe). Réessaye ta commande - j'ai réinitialisé ma connexion."
+        return f"❌ Erreur BigQuery: {error_msg}"

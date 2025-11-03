@@ -43,15 +43,23 @@ claude = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 bq_client = None
 bq_client_normalized = None  # second projet
 
-try:
-    if os.getenv("BIGQUERY_PROJECT_ID"):
-        bq_client = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID"))
-    if os.getenv("BIGQUERY_PROJECT_ID_2"):
-        bq_client_normalized = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID_2"))
-except Exception as e:
-    print(f"⚠️ BigQuery init error: {e}")
-    bq_client = bq_client or None
-    bq_client_normalized = bq_client_normalized or None
+def init_bigquery_clients():
+    """Initialise ou réinitialise les clients BigQuery."""
+    global bq_client, bq_client_normalized
+    try:
+        if os.getenv("BIGQUERY_PROJECT_ID"):
+            bq_client = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID"))
+            print(f"✅ BigQuery client initialisé: {os.getenv('BIGQUERY_PROJECT_ID')}")
+        if os.getenv("BIGQUERY_PROJECT_ID_2"):
+            bq_client_normalized = bigquery.Client(project=os.getenv("BIGQUERY_PROJECT_ID_2"))
+            print(f"✅ BigQuery normalized client initialisé: {os.getenv('BIGQUERY_PROJECT_ID_2')}")
+    except Exception as e:
+        print(f"⚠️ BigQuery init error: {e}")
+        bq_client = bq_client or None
+        bq_client_normalized = bq_client_normalized or None
+
+# Initialiser au démarrage
+init_bigquery_clients()
 
 # ---------- Notion (optionnel) ----------
 notion_client = None
