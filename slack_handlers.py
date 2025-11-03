@@ -132,7 +132,8 @@ def setup_handlers(context: str):
                     )
 
                     # Générer et envoyer le bilan dans le même channel
-                    success = send_morning_summary(channel=channel)
+                    # IMPORTANT: Passer le client du handler pour éviter le broken pipe
+                    success = send_morning_summary(channel=channel, client=client)
 
                     if success:
                         client.chat_postMessage(

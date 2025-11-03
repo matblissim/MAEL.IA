@@ -1221,14 +1221,18 @@ def generate_daily_summary_blocks():
     }
 
 
-def send_morning_summary(channel: str = "bot-lab", use_blocks: bool = True):
+def send_morning_summary(channel: str = "bot-lab", use_blocks: bool = True, client=None):
     """
     Generate and send daily summary to specified channel.
 
     Args:
         channel: Slack channel name (default: bot-lab)
         use_blocks: Use Block Kit format (default: True)
+        client: Slack WebClient instance (if None, uses app.client from config)
     """
+    # Use provided client or fall back to global app.client
+    slack_client = client if client is not None else app.client
+
     try:
         print(f"[Morning Summary] Sending daily summary to #{channel}")
 
@@ -1243,7 +1247,7 @@ def send_morning_summary(channel: str = "bot-lab", use_blocks: bool = True):
             # Check for error
             if 'Unable to generate' in fallback_text:
                 print(f"[Morning Summary] ⚠️ Report contains an error")
-                response = app.client.chat_postMessage(
+                response = slack_client.chat_postMessage(
                     channel=channel,
                     blocks=blocks,
                     text=fallback_text
@@ -1252,7 +1256,7 @@ def send_morning_summary(channel: str = "bot-lab", use_blocks: bool = True):
                 return False
 
             # Send to channel
-            response = app.client.chat_postMessage(
+            response = slack_client.chat_postMessage(
                 channel=channel,
                 blocks=blocks,
                 text=fallback_text,
@@ -1273,7 +1277,7 @@ def send_morning_summary(channel: str = "bot-lab", use_blocks: bool = True):
             # Check for error
             if "Unable to generate" in summary or "missing data" in summary:
                 print(f"[Morning Summary] ⚠️ Report contains an error")
-                response = app.client.chat_postMessage(
+                response = slack_client.chat_postMessage(
                     channel=channel,
                     text=summary
                 )
@@ -1281,7 +1285,7 @@ def send_morning_summary(channel: str = "bot-lab", use_blocks: bool = True):
                 return False
 
             # Send to channel
-            response = app.client.chat_postMessage(
+            response = slack_client.chat_postMessage(
                 channel=channel,
                 text=summary,
                 unfurl_links=False,
