@@ -37,7 +37,14 @@ HISTORY_LIMIT   = int(os.getenv("HISTORY_LIMIT", "20"))           # limite histo
 
 # ---------- Slack / Anthropic ----------
 app = App(token=os.environ["SLACK_BOT_TOKEN"], process_before_response=False)
-claude = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+# Configuration du client Anthropic avec timeouts et retries robustes
+# pour éviter les broken pipe et autres erreurs réseau
+claude = Anthropic(
+    api_key=os.environ["ANTHROPIC_API_KEY"],
+    timeout=120.0,  # Timeout global de 120 secondes
+    max_retries=2,  # Retry automatique au niveau HTTP (en plus du retry applicatif)
+)
 
 # ---------- BigQuery ----------
 bq_client = None
