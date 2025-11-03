@@ -158,9 +158,19 @@ def setup_handlers(context: str):
                 if queries:
                     answer += format_sql_queries(queries)
 
-            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
-            ACTIVE_THREADS.add(thread_ts)
-            logger.info("✅ Réponse envoyée (thread ajouté aux actifs)")
+            # Envoi avec retry silencieux en cas de broken pipe
+            for attempt in range(3):
+                try:
+                    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
+                    ACTIVE_THREADS.add(thread_ts)
+                    logger.info("✅ Réponse envoyée (thread ajouté aux actifs)")
+                    break
+                except (BrokenPipeError, ConnectionError) as e:
+                    if attempt < 2:
+                        import time
+                        time.sleep(1)
+                    else:
+                        raise
         except Exception as e:
             logger.exception(f"❌ Erreur on_app_mention: {e}")
             try:
@@ -209,8 +219,18 @@ def setup_handlers(context: str):
                 if queries:
                     answer += format_sql_queries(queries)
 
-            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
-            logger.info("✅ Réponse envoyée dans le thread")
+            # Envoi avec retry silencieux en cas de broken pipe
+            for attempt in range(3):
+                try:
+                    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
+                    logger.info("✅ Réponse envoyée dans le thread")
+                    break
+                except (BrokenPipeError, ConnectionError) as e:
+                    if attempt < 2:
+                        import time
+                        time.sleep(1)
+                    else:
+                        raise
         except Exception as e:
             logger.exception(f"❌ Erreur on_message: {e}")
             try:
