@@ -134,18 +134,26 @@ def setup_handlers(context: str):
                     # Générer et envoyer le bilan dans le même channel
                     success = send_morning_summary(channel=channel)
 
-                    if success:
-                        client.chat_postMessage(
-                            channel=channel,
-                            thread_ts=thread_ts,
-                            text="✅ Bilan quotidien envoyé !"
-                        )
-                    else:
-                        client.chat_postMessage(
-                            channel=channel,
-                            thread_ts=thread_ts,
-                            text="❌ Erreur lors de la génération du bilan. Consultez les logs pour plus de détails."
-                        )
+                    # Message de confirmation (peut échouer avec broken pipe après opération longue)
+                    # On ignore l'erreur car le rapport est déjà envoyé
+                    try:
+                        if success:
+                            client.chat_postMessage(
+                                channel=channel,
+                                thread_ts=thread_ts,
+                                text="✅ Bilan quotidien envoyé !"
+                            )
+                        else:
+                            client.chat_postMessage(
+                                channel=channel,
+                                thread_ts=thread_ts,
+                                text="❌ Erreur lors de la génération du bilan. Consultez les logs pour plus de détails."
+                            )
+                    except Exception as confirm_error:
+                        # Ignore les erreurs de confirmation (broken pipe après opération longue)
+                        # Le rapport a déjà été envoyé avec succès
+                        logger.info(f"ℹ️ Impossible d'envoyer message de confirmation (rapport déjà envoyé): {confirm_error}")
+
                 except Exception as e:
                     logger.warning(f"⚠️ Erreur morning summary: {e}")
                 return
