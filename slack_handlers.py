@@ -432,7 +432,7 @@ def setup_handlers(context: str):
                     logger.info("="*80)
                     return
 
-            # Vérifier le nombre de messages dans le thread (limite à 20)
+            # Vérifier le nombre de messages dans le thread (limite à 40)
             # Mais seulement si c'est un VRAI thread (pas un message direct au channel)
             is_real_thread = "thread_ts" in event and event.get("thread_ts") != event.get("ts")
 
@@ -446,16 +446,16 @@ def setup_handlers(context: str):
                     message_count = len(thread_info.get("messages", []))
                     logger.debug(f"📊 Thread {thread_ts[:10]}... contient {message_count} messages")
 
-                    # Si plus de 20 messages, arrêter de répondre automatiquement (sauf si mention)
-                    if message_count >= 20 and not is_bot_mentioned:
-                        logger.info(f"🛑 Thread {thread_ts[:10]}... a atteint la limite de {message_count} messages (max: 20)")
+                    # Si plus de 40 messages, arrêter de répondre automatiquement (sauf si mention)
+                    if message_count >= 40 and not is_bot_mentioned:
+                        logger.info(f"🛑 Thread {thread_ts[:10]}... a atteint la limite de {message_count} messages (max: 40)")
                         logger.info(f"⏭️ Arrêt des réponses automatiques pour éviter une conversation infinie")
                         # Envoyer un message pour informer l'utilisateur
                         try:
                             client.chat_postMessage(
                                 channel=channel,
                                 thread_ts=thread_ts,
-                                text=f"⚠️ Ce thread a atteint la limite de 20 messages. Pour continuer, mentionnez-moi avec @{BOT_NAME} ou commencez un nouveau thread !"
+                                text=f"⚠️ Ce thread a atteint la limite de 40 messages. Pour continuer, mentionnez-moi avec @{BOT_NAME} ou commencez un nouveau thread !"
                             )
                             invalidate_thread_cache(thread_ts)
                         except Exception as msg_error:
