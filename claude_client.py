@@ -291,8 +291,25 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
                 return "🚦 Limite d'API atteinte. Réessaie dans quelques secondes."
             else:
                 return f"⚠️ Erreur technique : {msg[:200]}"
+        except (BrokenPipeError, ConnectionError, OSError) as e:
+            # Erreurs réseau (broken pipe, connection reset, etc.)
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) * 2
+                print(f"⚠️ Erreur réseau ({type(e).__name__}), retry {attempt + 1}/{max_retries} dans {wait_time}s…")
+                time.sleep(wait_time)
+                continue
+            else:
+                return f"⚠️ Problème de connexion réseau ({type(e).__name__}). Vérifie ta connexion et réessaie."
         except Exception as e:
-            return f"⚠️ Erreur inattendue : {str(e)[:200]}"
+            error_msg = str(e)
+            # Retry sur les erreurs de connexion génériques
+            if any(term in error_msg.lower() for term in ["broken pipe", "connection", "reset", "network"]):
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 2
+                    print(f"⚠️ Erreur réseau ({error_msg[:100]}), retry {attempt + 1}/{max_retries} dans {wait_time}s…")
+                    time.sleep(wait_time)
+                    continue
+            return f"⚠️ Erreur inattendue : {error_msg[:200]}"
 
     return "⚠️ Impossible de joindre le modèle après plusieurs tentatives."
 

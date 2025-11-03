@@ -188,6 +188,13 @@ def setup_handlers(context: str):
 
             if user == get_bot_user_id():
                 return
+
+            # Ignorer si c'est une mention du bot (déjà géré par app_mention)
+            bot_user_id = get_bot_user_id()
+            if bot_user_id and f"<@{bot_user_id}>" in text:
+                logger.info(f"⏭️ Message avec mention du bot → ignoré (géré par app_mention)")
+                return
+
             if thread_ts not in ACTIVE_THREADS:
                 logger.info(f"⏭️ Thread {thread_ts[:10]}… non actif")
                 return
