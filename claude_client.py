@@ -1,6 +1,7 @@
 # claude_client.py
 """Interface avec Claude (Anthropic API)."""
 
+import os
 import time
 from typing import List
 from anthropic import APIError
@@ -209,6 +210,11 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
     """Envoie une requête à Claude et gère les outils."""
     for attempt in range(max_retries):
         try:
+            print(f"\n🟦 CLAUDE REQUEST START (tentative {attempt + 1}/{max_retries})")
+            print(f"   Thread: {thread_ts}")
+            print(f"   Prompt length: {len(prompt)} chars")
+            print(f"   Context length: {len(context)} chars")
+
             history = get_thread_history(thread_ts)
             messages = history.copy()
             messages.append({"role": "user", "content": prompt})
@@ -222,6 +228,7 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
             if context:
                 system_blocks.append({"type": "text", "text": context, "cache_control": {"type": "ephemeral"}})
 
+            print(f"🟦 Appel API Anthropic (model={ANTHROPIC_MODEL}, {len(messages)} messages)...")
             response = claude.messages.create(
                 model=ANTHROPIC_MODEL,
                 max_tokens=2048,
@@ -229,6 +236,7 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
                 tools=TOOLS,
                 messages=messages
             )
+            print(f"🟦 Réponse API reçue (stop_reason={response.stop_reason})")
             log_claude_usage(response)
 
             # Fonction helper pour vérifier s'il y a des tool_use dans le contenu
@@ -293,6 +301,17 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
                 return f"⚠️ Erreur technique : {msg[:200]}"
         except (BrokenPipeError, ConnectionError, OSError) as e:
             # Erreurs réseau (broken pipe, connection reset, etc.)
+            import traceback
+            print(f"\n🔴 BROKEN PIPE DIAGNOSTIC (tentative {attempt + 1}/{max_retries}):")
+            print(f"   Type d'erreur: {type(e).__name__}")
+            print(f"   Message: {str(e)}")
+            print(f"   Errno: {getattr(e, 'errno', 'N/A')}")
+            print(f"   Stack trace:")
+            traceback.print_exc()
+            print(f"   Proxy env: HTTP_PROXY={os.getenv('HTTP_PROXY', 'NON DÉFINI')}")
+            print(f"   NO_PROXY: {os.getenv('NO_PROXY', 'NON DÉFINI')}")
+            print(f"🔴 FIN DIAGNOSTIC\n")
+
             if attempt < max_retries - 1:
                 wait_time = (2 ** attempt) * 2
                 print(f"⚠️ Erreur réseau ({type(e).__name__}), retry {attempt + 1}/{max_retries} dans {wait_time}s…")
@@ -304,6 +323,14 @@ def ask_claude(prompt: str, thread_ts: str, context: str = "", max_retries: int 
             error_msg = str(e)
             # Retry sur les erreurs de connexion génériques
             if any(term in error_msg.lower() for term in ["broken pipe", "connection", "reset", "network"]):
+                import traceback
+                print(f"\n🔴 ERREUR RÉSEAU GÉNÉRIQUE (tentative {attempt + 1}/{max_retries}):")
+                print(f"   Type: {type(e).__name__}")
+                print(f"   Message: {error_msg}")
+                print(f"   Stack trace:")
+                traceback.print_exc()
+                print(f"🔴 FIN DIAGNOSTIC\n")
+
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 2
                     print(f"⚠️ Erreur réseau ({error_msg[:100]}), retry {attempt + 1}/{max_retries} dans {wait_time}s…")
