@@ -8,6 +8,27 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/theme/black.css">
     <style>
+        /* HERO / TITRE */
+        .reveal section.slide-title { text-align: center; }
+        .reveal section.slide-title .avatar {
+          width: 200px; height: 200px; border-radius: 50%;
+          display: block; margin: 0 auto 20px;
+          box-shadow: 0 8px 25px rgba(66,175,250,0.35);
+        }
+        .reveal section.slide-title h1 { margin: 6px 0 10px; font-size: 2.8em; }
+        .reveal section.slide-title .title-logo {
+          width: 56px; height: 56px; border-radius: 50%;
+          vertical-align: -8px; margin-right: 10px;
+          box-shadow: 0 4px 14px rgba(66,175,250,0.25);
+        }
+        .reveal section.slide-title .tech-stack {
+          font-size: 0.9em; color: #42affa;
+        }
+        .reveal section.slide-title .tldr {
+          font-size: 0.85em; text-align: left;
+          padding: 0 50px; margin: 22px auto 0; max-width: 920px;
+        }
+
         .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
         .reveal pre { width: 100%; box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.5); }
         .reveal code { background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; }
@@ -42,26 +63,33 @@
             margin: 15px 0;
         }
     </style>
+    
 </head>
 <body>
-    <div class="reveal">
-        <div class="slides">
+  <div class="reveal">
+    <div class="slides">
 
-            <!-- SLIDE 1: TITRE + TL;DR -->
-            <section style="text-align:center;">
-            
-                <div style="display:inline-flex; align-items:center; padding:10px 20px;
-                    border-radius:40px; background:#0f172a; box-shadow:0 6px 20px rgba(66,175,250,0.3);">
-                    <img src="MAEL.png" alt="Franck" style="width:55px; border-radius:50%; margin-right:12px;">
-                    <h1 style="margin:0; font-size:2.5em;">Franck</h1>
-                </div>
-            
-                <h3 style="margin-top:25px;">Assistant IA pour Blissim</h3>
-            </section>
+      <!-- SLIDE 1: TITRE + TL;DR -->
+      <section class="slide-title">
+        <h1>
+          <img src="MAEL.png" alt="Franck" class="title-logo">
+          Franck
+        </h1>
 
+        <h3>Assistant IA pour Blissim</h3>
+        <p class="tech-stack">
+          Slack Bot + Claude AI + BigQuery + Notion
+        </p>
 
-            <!-- SLIDE 2: QU'EST-CE QUE FRANCK ? -->
-            <section>
+        <p class="tldr">
+          <strong class="highlight">TL;DR</strong><br>
+          Bot Slack intelligent permettant aux équipes Blissim de :<br>
+          ✅ Poser des questions en langage naturel sur les données business<br>
+          ✅ Obtenir des analyses automatiques via BigQuery<br>
+          ✅ Générer des rapports quotidiens (résumé matinal à 8h30)<br>
+          ✅ Sauvegarder des analyses dans Notion
+        </p>
+      </section>
                 <h2>🎯 Qu'est-ce que Franck ?</h2>
 
                 <div class="two-columns" style="margin-top: 30px;">
