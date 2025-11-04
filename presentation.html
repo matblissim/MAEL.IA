@@ -8,60 +8,40 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/theme/black.css">
     <style>
-    /* Icône inline dans le H1 : écrase le thème Reveal */
-    .reveal .slides section h1.heading-with-logo {
-        display: inline-flex;
-        align-items: center;
-        gap: 15px;
-    }
-
-    .reveal .slides section h1.heading-with-logo img.logo-inline {
-        width: 128px !important;
-        height: 128px !important;
-        max-width: none !important;
-        display: inline-block !important;
-        vertical-align: middle !important;
-        border-radius: 0 !important; /* carré */
-        box-shadow: 0 0 10px rgba(66,175,250,.25);
-    }
-
-    .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
-    .reveal pre { width: 100%; box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.5); }
-    .reveal code { background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; }
-    .reveal table { font-size: 0.7em; }
-
-    .reveal .architecture-diagram {
-        background: rgba(0, 0, 0, 0.3);
-        padding: 20px;
-        border-radius: 10px;
-        font-family: monospace;
-        font-size: 0.5em;
-        text-align: left;
-        line-height: 1.3;
-        white-space: pre;
-    }
-
-    .reveal .highlight { color: #42affa; font-weight: bold; }
-    .reveal .success { color: #2ecc71; }
-    .reveal .warning { color: #f39c12; }
-    .reveal .danger { color: #e74c3c; }
-    .reveal ul { font-size: 0.85em; }
-    .reveal .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
-    .reveal .feature-box {
-        background: rgba(66, 175, 250, 0.1);
-        padding: 15px;
-        border-radius: 8px;
-        border-left: 4px solid #42affa;
-        margin: 10px 0;
-    }
-    .reveal .roadmap-section {
-        background: rgba(255, 255, 255, 0.05);
-        padding: 15px;
-        border-radius: 8px;
-        margin: 15px 0;
-    }
-</style>
-
+        .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
+        .reveal pre { width: 100%; box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.5); }
+        .reveal code { background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; }
+        .reveal table { font-size: 0.7em; }
+        .reveal .architecture-diagram {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 0.5em;
+            text-align: left;
+            line-height: 1.3;
+            white-space: pre;
+        }
+        .reveal .highlight { color: #42affa; font-weight: bold; }
+        .reveal .success { color: #2ecc71; }
+        .reveal .warning { color: #f39c12; }
+        .reveal .danger { color: #e74c3c; }
+        .reveal ul { font-size: 0.85em; }
+        .reveal .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        .reveal .feature-box {
+            background: rgba(66, 175, 250, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #42affa;
+            margin: 10px 0;
+        }
+        .reveal .roadmap-section {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+    </style>
 </head>
 <body>
     <div class="reveal">
@@ -69,11 +49,12 @@
 
             <!-- SLIDE 1: TITRE + TL;DR -->
             <section>
-<h1 class="heading-with-logo">
-  <img src="MAEL.png" class="logo-inline" alt="Franck">
-  Franck
-</h1>
-
+                <h1>
+                  <img src="MAEL.png"
+                       alt="Franck"
+                       style="width:35px; height:35px; border-radius:50%; vertical-align:middle; margin-right:10px;">
+                  Franck
+                </h1>
 
                 <h3>Assistant IA pour Blissim</h3>
                 <p style="font-size: 0.8em; color: #42affa;">
