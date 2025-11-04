@@ -39,14 +39,22 @@
             line-height: 1.3;
             white-space: pre;
         }
-        .reveal h1 img.logo-inline {
-      width: 32px !important;
-      height: 32px !important;
-      display: inline-block !important;
-      vertical-align: middle !important;
-      border-radius: 50% !important;
-      margin-right: 10px !important;
-      box-shadow: 0 0 8px rgba(66,175,250,.3);
+        .reveal .slides section h1.heading-with-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.reveal .slides section h1.heading-with-logo img.logo-inline {
+  width: 128px !important;
+  height: 128px !important;
+  max-width: none !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+  border-radius: 0 !important;           /* carré */
+  box-shadow: 0 0 10px rgba(66,175,250,.25);
+}
+
         }
         .reveal .highlight { color: #42affa; font-weight: bold; }
         .reveal .success { color: #2ecc71; }
@@ -75,10 +83,10 @@
 
             <!-- SLIDE 1: TITRE + TL;DR -->
             <section>
-               <h1 class="heading-with-logo">
-                  <img src="MAEL.png?v=2" alt="Franck" class="logo-inline">
-                  Franck
-                </h1>
+              <h1 class="heading-with-logo">
+  <img src="MAEL.png?v=3" alt="Franck" class="logo-inline">
+  Franck
+</h1>
 
                 <h3>Assistant IA pour Blissim</h3>
                 <p style="font-size: 0.8em; color: #42affa;">
