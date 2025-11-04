@@ -8,6 +8,23 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/theme/black.css">
     <style>
+        /* Icône inline dans le H1 : écrase le thème Reveal */
+.reveal .slides section h1.heading-with-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.reveal .slides section h1.heading-with-logo img.logo-inline {
+  width: 32px !important;
+  height: 32px !important;
+  max-width: none !important;   /* le thème force max-width */
+  display: inline-block !important; /* le thème met souvent block */
+  vertical-align: middle !important;
+  border-radius: 50% !important;
+  margin: 0 !important;
+  box-shadow: 0 0 8px rgba(66,175,250,.3);
+}
+
         .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
         .reveal pre { width: 100%; box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.5); }
         .reveal code { background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; }
