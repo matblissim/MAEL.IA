@@ -2,7 +2,7 @@
 """Point d'entrée avec Event API (webhooks HTTPS) pour ne rater aucun message."""
 
 import os
-from flask import Flask, request
+from flask import Flask, request, send_file
 from slack_bolt.adapter.flask import SlackRequestHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 from config import app, bq_client, bq_client_normalized, notion_client, BOT_NAME
@@ -109,6 +109,12 @@ def create_app():
     def root():
         """Page d'accueil."""
         return f"🤖 {BOT_NAME} is running! (Event API mode)", 200
+
+    @flask_app.route("/presentation", methods=["GET"])
+    def presentation():
+        """Servir la présentation HTML du projet."""
+        presentation_path = os.path.join(os.path.dirname(__file__), 'presentation.html')
+        return send_file(presentation_path, mimetype='text/html')
 
     print("\n🌐 Mode Event API activé (webhooks HTTPS)")
     print(f"📍 Slack events → https://franck.blis.im/slack/events")
