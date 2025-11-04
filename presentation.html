@@ -1,144 +1,113 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Franck - Présentation du Projet</title>
-
-  <!-- Reveal.js core + thème -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reset.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/theme/black.css">
-
-  <style>
-    /* ====== HERO / TITRE ====== */
-    .reveal section.slide-title { text-align: center; }
-    .reveal section.slide-title .avatar {
-      width: 200px; height: 200px; border-radius: 50%;
-      display: block; margin: 0 auto 20px;
-      box-shadow: 0 8px 25px rgba(66,175,250,0.35);
-    }
-    .reveal section.slide-title h1 { margin: 6px 0 10px; font-size: 2.8em; line-height: 1.1; }
-    .reveal section.slide-title .title-logo {
-      width: 56px; height: 56px; border-radius: 50%;
-      vertical-align: -8px; margin-right: 10px;
-      box-shadow: 0 4px 14px rgba(66,175,250,0.25);
-      display: inline-block;
-    }
-    .reveal section.slide-title .tech-stack {
-      font-size: 0.9em; color: #42affa;
-    }
-    .reveal section.slide-title .tldr {
-      font-size: 0.85em; text-align: left;
-      padding: 0 50px; margin: 22px auto 0; max-width: 920px;
-    }
-
-    /* ====== STYLES GÉNÉRAUX ====== */
-    .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
-    .reveal pre { width: 100%; box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.5); }
-    .reveal code { background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; }
-    .reveal table { font-size: 0.7em; }
-    .reveal .architecture-diagram {
-      background: rgba(0, 0, 0, 0.3);
-      padding: 20px;
-      border-radius: 10px;
-      font-family: monospace;
-      font-size: 0.5em;
-      text-align: left;
-      line-height: 1.3;
-      white-space: pre;
-    }
-    .reveal .highlight { color: #42affa; font-weight: bold; }
-    .reveal .success { color: #2ecc71; }
-    .reveal .warning { color: #f39c12; }
-    .reveal .danger { color: #e74c3c; }
-    .reveal ul { font-size: 0.85em; }
-    .reveal .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
-    .reveal .feature-box {
-      background: rgba(66, 175, 250, 0.1);
-      padding: 15px;
-      border-radius: 8px;
-      border-left: 4px solid #42affa;
-      margin: 10px 0;
-    }
-    .reveal .roadmap-section {
-      background: rgba(255, 255, 255, 0.05);
-      padding: 15px;
-      border-radius: 8px;
-      margin: 15px 0;
-    }
-  </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Franck - Présentation du Projet</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reset.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/theme/black.css">
+    <style>
+        .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
+        .reveal pre { width: 100%; box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.5); }
+        .reveal code { background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 3px; }
+        .reveal table { font-size: 0.7em; }
+        .reveal .architecture-diagram {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 0.5em;
+            text-align: left;
+            line-height: 1.3;
+            white-space: pre;
+        }
+        .reveal .highlight { color: #42affa; font-weight: bold; }
+        .reveal .success { color: #2ecc71; }
+        .reveal .warning { color: #f39c12; }
+        .reveal .danger { color: #e74c3c; }
+        .reveal ul { font-size: 0.85em; }
+        .reveal .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        .reveal .feature-box {
+            background: rgba(66, 175, 250, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #42affa;
+            margin: 10px 0;
+        }
+        .reveal .roadmap-section {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+    </style>
 </head>
-
 <body>
-  <div class="reveal">
-    <div class="slides">
+    <div class="reveal">
+        <div class="slides">
 
-      <!-- SLIDE 1: TITRE + TL;DR -->
-      <section class="slide-title">
-        <h1>
-          <img src="MAEL.png" alt="Franck" class="title-logo">
-          Franck
-        </h1>
+            <!-- SLIDE 1: TITRE + TL;DR -->
+            <section>
+                <img src="MAEL.png" alt="Franck" style="width: 200px; height: 200px; border-radius: 50%; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(66, 175, 250, 0.4);">
+                <h1>🤖 Franck</h1>
+                <h3>Assistant IA pour Blissim</h3>
+                <p style="font-size: 0.8em; color: #42affa;">
+                    Slack Bot + Claude AI + BigQuery + Notion
+                </p>
+                <br>
+                <p style="font-size: 0.7em; text-align: left; padding: 0 50px;">
+                    <strong class="highlight">TL;DR</strong><br>
+                    Bot Slack intelligent permettant aux équipes Blissim de :<br>
+                    ✅ Poser des questions en langage naturel sur les données business<br>
+                    ✅ Obtenir des analyses automatiques via BigQuery<br>
+                    ✅ Générer des rapports quotidiens (résumé matinal à 8h30)<br>
+                    ✅ Sauvegarder des analyses dans Notion
+                </p>
+            </section>
 
-        <h3>Assistant IA pour Blissim</h3>
+            <!-- SLIDE 2: QU'EST-CE QUE FRANCK ? -->
+            <section>
+                <h2>🎯 Qu'est-ce que Franck ?</h2>
 
-        <p class="tech-stack">
-          Slack Bot + Claude AI + BigQuery + Notion
-        </p>
+                <div class="two-columns" style="margin-top: 30px;">
+                    <div>
+                        <h3 style="color: #e74c3c;">❌ Le Problème</h3>
+                        <ul style="text-align: left; font-size: 0.75em;">
+                            <li>Équipes ne savent pas écrire du SQL</li>
+                            <li>Dépendance aux data analysts</li>
+                            <li>Délai de réponse trop long</li>
+                            <li>Friction dans la prise de décision</li>
+                        </ul>
+                    </div>
 
-        <p class="tldr">
-          <strong class="highlight">TL;DR</strong><br>
-          Bot Slack intelligent permettant aux équipes Blissim de :<br>
-          ✅ Poser des questions en langage naturel sur les données business<br>
-          ✅ Obtenir des analyses automatiques via BigQuery<br>
-          ✅ Générer des rapports quotidiens (résumé matinal à 8h30)<br>
-          ✅ Sauvegarder des analyses dans Notion
-        </p>
-      </section>
+                    <div>
+                        <h3 style="color: #2ecc71;">✅ La Solution</h3>
+                        <ul style="text-align: left; font-size: 0.75em;">
+                            <li>Comprend le français/anglais</li>
+                            <li>Génère du SQL automatiquement</li>
+                            <li>Maintient le contexte</li>
+                            <li>Documente dans Notion</li>
+                        </ul>
+                    </div>
+                </div>
 
-      <!-- SLIDE 2: DEFINITION -->
-      <section>
-        <h2>🎯 Qu'est-ce que Franck ?</h2>
-
-        <div class="two-columns" style="margin-top: 30px;">
-          <div>
-            <h3 style="color: #e74c3c;">❌ Le Problème</h3>
-            <ul style="text-align: left; font-size: 0.75em;">
-              <li>Équipes ne savent pas écrire du SQL</li>
-              <li>Dépendance aux data analysts</li>
-              <li>Délai de réponse trop long</li>
-              <li>Friction dans la prise de décision</li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 style="color: #2ecc71;">✅ La Solution</h3>
-            <ul style="text-align: left; font-size: 0.75em;">
-              <li>Comprend le français/anglais</li>
-              <li>Génère du SQL automatiquement</li>
-              <li>Maintient le contexte</li>
-              <li>Documente dans Notion</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="feature-box" style="margin-top: 30px;">
-          <h4>💬 Exemple d'utilisation</h4>
-<pre style="font-size: 0.5em; margin: 10px 0;"><code>User: @Franck Quel est le chiffre d'affaires de septembre en France ?
+                <div class="feature-box" style="margin-top: 30px;">
+                    <h4>💬 Exemple d'utilisation</h4>
+                    <pre style="font-size: 0.5em; margin: 10px 0;"><code>User: @Franck Quel est le chiffre d'affaires de septembre en France ?
 
 Franck: 🔍 Analyse en cours...
         📊 CA France septembre 2024 : 2,3M€
         📈 +12% vs septembre 2023
         📉 -3% vs août 2024</code></pre>
-        </div>
-      </section>
+                </div>
+            </section>
 
-      <!-- SLIDE 3: ARCHITECTURE -->
-      <section>
-        <h2>🏗️ Architecture & Flux de Données</h2>
+            <!-- SLIDE 3: ARCHITECTURE -->
+            <section>
+                <h2>🏗️ Architecture & Flux de Données</h2>
 
-        <div class="architecture-diagram" style="font-size: 0.28em; padding: 10px;">
+                <div class="architecture-diagram" style="font-size: 0.28em; padding: 10px;">
 ┌───────────────────────────────────────────────────┐
 │         SLACK WORKSPACE (Équipes Blissim)         │
 └──────────────────────┬────────────────────────────┘
@@ -179,81 +148,150 @@ Franck: 🔍 Analyse en cours...
 │BigQuery│ │Notion │ │ Thread  │ │ Morning  │
 │ Tools  │ │ Tools │ │ Memory  │ │ Summary  │
 └────────┘ └───────┘ └─────────┘ └──────────┘
-        </div>
+                </div>
 
-        <p style="font-size: 0.6em; margin-top: 20px;">
-          <strong class="highlight">Stack:</strong> Python + Claude Sonnet 4.5 + BigQuery + Notion API + Slack Bolt<br>
-          <strong class="highlight">Déploiement:</strong> Event API (webhooks) + Nginx + SSL
-        </p>
-      </section>
+                <p style="font-size: 0.6em; margin-top: 20px;">
+                    <strong class="highlight">Stack:</strong> Python + Claude Sonnet 4.5 + BigQuery + Notion API + Slack Bolt<br>
+                    <strong class="highlight">Déploiement:</strong> Event API (webhooks) + Nginx + SSL
+                </p>
+            </section>
 
-      <!-- SLIDE 4: COMPOSANTS -->
-      <section>
-        <h2>🧩 Architecture Modulaire</h2>
-        <p style="font-size: 0.7em;">9 modules spécialisés pour une séparation claire des responsabilités</p>
+            <!-- SLIDE 4: COMPOSANTS -->
+            <section>
+                <h2>🧩 Architecture Modulaire</h2>
+                <p style="font-size: 0.7em;">9 modules spécialisés pour une séparation claire des responsabilités</p>
 
-        <table style="font-size: 0.55em; margin-top: 20px;">
-          <thead>
-            <tr>
-              <th>Module</th>
-              <th>Responsabilité</th>
-              <th>LOC</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td><code>app_webhook.py</code></td><td>Point d'entrée Event API</td><td>~100</td></tr>
-            <tr><td><code>slack_handlers.py</code></td><td>Gestion événements Slack</td><td>~200</td></tr>
-            <tr><td><code>claude_client.py</code></td><td>Orchestration Claude AI</td><td>~250</td></tr>
-            <tr><td><code>tools_definitions.py</code></td><td>Définition des 9 outils</td><td>~150</td></tr>
-            <tr><td><code>bigquery_tools.py</code></td><td>Exécution SQL</td><td>~300</td></tr>
-            <tr><td><code>notion_tools.py</code></td><td>CRUD Notion</td><td>~200</td></tr>
-            <tr><td><code>thread_memory.py</code></td><td>Mémoire de conversation</td><td>~100</td></tr>
-            <tr><td><code>context_loader.py</code></td><td>Agrégation contexte</td><td>~150</td></tr>
-            <tr><td><code>morning_summary.py</code></td><td>Rapport quotidien</td><td>~200</td></tr>
-          </tbody>
-        </table>
-      </section>
+                <table style="font-size: 0.55em; margin-top: 20px;">
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Responsabilité</th>
+                            <th>LOC</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>app_webhook.py</code></td>
+                            <td>Point d'entrée Event API</td>
+                            <td>~100</td>
+                        </tr>
+                        <tr>
+                            <td><code>slack_handlers.py</code></td>
+                            <td>Gestion événements Slack</td>
+                            <td>~200</td>
+                        </tr>
+                        <tr>
+                            <td><code>claude_client.py</code></td>
+                            <td>Orchestration Claude AI</td>
+                            <td>~250</td>
+                        </tr>
+                        <tr>
+                            <td><code>tools_definitions.py</code></td>
+                            <td>Définition des 9 outils</td>
+                            <td>~150</td>
+                        </tr>
+                        <tr>
+                            <td><code>bigquery_tools.py</code></td>
+                            <td>Exécution SQL</td>
+                            <td>~300</td>
+                        </tr>
+                        <tr>
+                            <td><code>notion_tools.py</code></td>
+                            <td>CRUD Notion</td>
+                            <td>~200</td>
+                        </tr>
+                        <tr>
+                            <td><code>thread_memory.py</code></td>
+                            <td>Mémoire de conversation</td>
+                            <td>~100</td>
+                        </tr>
+                        <tr>
+                            <td><code>context_loader.py</code></td>
+                            <td>Agrégation contexte</td>
+                            <td>~150</td>
+                        </tr>
+                        <tr>
+                            <td><code>morning_summary.py</code></td>
+                            <td>Rapport quotidien</td>
+                            <td>~200</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
 
-      <!-- SLIDE 5: OUTILS -->
-      <section>
-        <h2>🛠️ 9 Outils Intégrés</h2>
+            <!-- SLIDE 5: FONCTIONNALITÉS - 9 OUTILS -->
+            <section>
+                <h2>🛠️ 9 Outils Intégrés</h2>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 0.6em; margin-top: 20px;">
-          <div class="feature-box"><strong>📋 describe_table</strong><br>Inspecter schéma BigQuery</div>
-          <div class="feature-box"><strong>🔍 query_bigquery</strong><br>Requêter teamdata-291012</div>
-          <div class="feature-box"><strong>⭐ query_reviews</strong><br>Requêter avis clients</div>
-          <div class="feature-box"><strong>📦 query_ops</strong><br>Requêter logistics/shipments</div>
-          <div class="feature-box"><strong>👥 query_crm</strong><br>Requêter données CRM</div>
-          <div class="feature-box"><strong>🔎 search_notion</strong><br>Rechercher docs internes</div>
-          <div class="feature-box"><strong>📄 read_notion_page</strong><br>Lire page Notion</div>
-          <div class="feature-box"><strong>💾 save_analysis_to_notion</strong><br>Sauvegarder analyse</div>
-          <div class="feature-box"><strong>📊 append_table_to_notion_page</strong><br>Insérer tableau formaté</div>
-        </div>
-      </section>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 0.6em; margin-top: 20px;">
+                    <div class="feature-box">
+                        <strong>📋 describe_table</strong><br>
+                        Inspecter schéma BigQuery
+                    </div>
+                    <div class="feature-box">
+                        <strong>🔍 query_bigquery</strong><br>
+                        Requêter teamdata-291012
+                    </div>
+                    <div class="feature-box">
+                        <strong>⭐ query_reviews</strong><br>
+                        Requêter avis clients
+                    </div>
+                    <div class="feature-box">
+                        <strong>📦 query_ops</strong><br>
+                        Requêter logistics/shipments
+                    </div>
+                    <div class="feature-box">
+                        <strong>👥 query_crm</strong><br>
+                        Requêter données CRM
+                    </div>
+                    <div class="feature-box">
+                        <strong>🔎 search_notion</strong><br>
+                        Rechercher docs internes
+                    </div>
+                    <div class="feature-box">
+                        <strong>📄 read_notion_page</strong><br>
+                        Lire page Notion
+                    </div>
+                    <div class="feature-box">
+                        <strong>💾 save_analysis_to_notion</strong><br>
+                        Sauvegarder analyse
+                    </div>
+                    <div class="feature-box">
+                        <strong>📊 append_table_to_notion_page</strong><br>
+                        Insérer tableau formaté
+                    </div>
+                </div>
+            </section>
 
-      <!-- SLIDE 6: RÉSUMÉ MATINAL -->
-      <section>
-        <h2>☀️ Résumé Matinal Automatique</h2>
+            <!-- SLIDE 6: FONCTIONNALITÉS - RÉSUMÉ MATINAL -->
+            <section>
+                <h2>☀️ Résumé Matinal Automatique</h2>
 
-        <div class="feature-box" style="margin-top: 30px;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-size: 0.75em;">
-            <div><strong>⏰ Déclenchement</strong><br>Chaque jour à 8h30</div>
-            <div><strong>📺 Canal</strong><br>#bot-lab (configurable)</div>
-          </div>
-        </div>
+                <div class="feature-box" style="margin-top: 30px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-size: 0.75em;">
+                        <div>
+                            <strong>⏰ Déclenchement</strong><br>
+                            Chaque jour à 8h30
+                        </div>
+                        <div>
+                            <strong>📺 Canal</strong><br>
+                            #bot-lab (configurable)
+                        </div>
+                    </div>
+                </div>
 
-        <div style="margin-top: 30px; font-size: 0.7em; text-align: left; padding: 0 50px;">
-          <strong class="highlight">Contenu du rapport :</strong>
-          <ul>
-            <li>📊 Acquisitions (hier vs N-1 vs N-365)</li>
-            <li>🎟️ Top 5 coupons utilisés</li>
-            <li>🌍 Répartition par pays</li>
-            <li>📈 Taux d'engagement</li>
-            <li>💰 Promotions actives</li>
-          </ul>
-        </div>
+                <div style="margin-top: 30px; font-size: 0.7em; text-align: left; padding: 0 50px;">
+                    <strong class="highlight">Contenu du rapport :</strong>
+                    <ul>
+                        <li>📊 Acquisitions (hier vs N-1 vs N-365)</li>
+                        <li>🎟️ Top 5 coupons utilisés</li>
+                        <li>🌍 Répartition par pays</li>
+                        <li>📈 Taux d'engagement</li>
+                        <li>💰 Promotions actives</li>
+                    </ul>
+                </div>
 
-<pre style="font-size: 0.45em; margin-top: 20px;"><code>☀️ Bonjour ! Voici le résumé de hier (2024-11-03)
+                <pre style="font-size: 0.45em; margin-top: 20px;"><code>☀️ Bonjour ! Voici le résumé de hier (2024-11-03)
 
 📊 Acquisitions : 1,234 (+8% vs hier, +15% vs l'an dernier)
 📈 Taux d'engagement : 67% (+2pts)
@@ -264,27 +302,27 @@ Franck: 🔍 Analyse en cours...
 3. VIP25 - 189 utilisations
 
 🌍 Par pays : FR 45% | ES 28% | IT 18% | Autres 9%</code></pre>
-      </section>
+            </section>
 
-      <!-- SLIDE 7: MÉMOIRE -->
-      <section>
-        <h2>🧠 Mémoire de Conversation</h2>
+            <!-- SLIDE 7: FONCTIONNALITÉS - MÉMOIRE -->
+            <section>
+                <h2>🧠 Mémoire de Conversation</h2>
 
-        <div style="margin-top: 40px;">
-          <div class="two-columns">
-            <div>
-              <h3 style="font-size: 0.8em; color: #42affa;">Contexte Persistant</h3>
-              <ul style="font-size: 0.65em; text-align: left;">
-                <li>Se souvient des 20 dernières interactions</li>
-                <li>Mémoire isolée par thread Slack</li>
-                <li>Comprend les questions de suivi</li>
-                <li>Configurable via <code>HISTORY_LIMIT</code></li>
-              </ul>
-            </div>
+                <div style="margin-top: 40px;">
+                    <div class="two-columns">
+                        <div>
+                            <h3 style="font-size: 0.8em; color: #42affa;">Contexte Persistant</h3>
+                            <ul style="font-size: 0.65em; text-align: left;">
+                                <li>Se souvient des 20 dernières interactions</li>
+                                <li>Mémoire isolée par thread Slack</li>
+                                <li>Comprend les questions de suivi</li>
+                                <li>Configurable via <code>HISTORY_LIMIT</code></li>
+                            </ul>
+                        </div>
 
-            <div>
-              <h3 style="font-size: 0.8em; color: #2ecc71;">Exemple</h3>
-<pre style="font-size: 0.45em;"><code>User: @Franck CA de septembre ?
+                        <div>
+                            <h3 style="font-size: 0.8em; color: #2ecc71;">Exemple</h3>
+                            <pre style="font-size: 0.45em;"><code>User: @Franck CA de septembre ?
 Franck: 2,3M€ pour la France
 
 User: Et pour l'Espagne ?
@@ -293,224 +331,243 @@ Franck: 1,8M€ pour l'Espagne
 
 User: Compare avec août
 Franck: FR: -3% | ES: +5%</code></pre>
-            </div>
-          </div>
-        </div>
+                        </div>
+                    </div>
+                </div>
 
-        <div class="feature-box" style="margin-top: 30px; font-size: 0.7em;">
-          <strong>💡 Le bot comprend le contexte sans répéter la question complète !</strong>
-        </div>
-      </section>
+                <div class="feature-box" style="margin-top: 30px; font-size: 0.7em;">
+                    <strong>💡 Le bot comprend le contexte sans répéter la question complète !</strong>
+                </div>
+            </section>
 
-      <!-- SLIDE 8: COÛTS -->
-      <section>
-        <h2>💰 Optimisation des Coûts</h2>
+            <!-- SLIDE 8: OPTIMISATION COÛTS -->
+            <section>
+                <h2>💰 Optimisation des Coûts</h2>
 
-        <div style="margin-top: 30px; font-size: 0.75em;">
-          <div class="feature-box">
-            <strong class="success">✅ Prompt Caching</strong>
-            <p style="margin: 10px 0;">Réduit les coûts API Claude de 50-70%</p>
-          </div>
+                <div style="margin-top: 30px; font-size: 0.75em;">
+                    <div class="feature-box">
+                        <strong class="success">✅ Prompt Caching</strong>
+                        <p style="margin: 10px 0;">Réduit les coûts API Claude de 50-70%</p>
+                    </div>
 
-          <div class="feature-box">
-            <strong class="success">✅ Token Tracking</strong>
-            <p style="margin: 10px 0;">Logs détaillés par requête avec estimation en temps réel</p>
-          </div>
+                    <div class="feature-box">
+                        <strong class="success">✅ Token Tracking</strong>
+                        <p style="margin: 10px 0;">Logs détaillés par requête avec estimation en temps réel</p>
+                    </div>
 
-          <div class="feature-box">
-            <strong class="success">✅ Troncation Intelligente</strong>
-            <p style="margin: 10px 0;">Limite les résultats à MAX_ROWS (50 par défaut)</p>
-          </div>
-        </div>
+                    <div class="feature-box">
+                        <strong class="success">✅ Troncation Intelligente</strong>
+                        <p style="margin: 10px 0;">Limite les résultats à MAX_ROWS (50 par défaut)</p>
+                    </div>
+                </div>
 
-<pre style="font-size: 0.5em; margin-top: 20px;"><code>[2024-11-04 10:23:45] Query: "CA par pays"
+                <pre style="font-size: 0.5em; margin-top: 20px;"><code>[2024-11-04 10:23:45] Query: "CA par pays"
 Input tokens: 12,450 (cached: 11,200)
 Output tokens: 850
 Cost estimate: $0.042
 Cache savings: 89% ($0.38 saved)</code></pre>
-      </section>
+            </section>
 
-      <!-- SLIDE 9: EVENT API -->
-      <section>
-        <h2>🔒 Migration Event API</h2>
-        <p style="font-size: 0.7em;">De Socket Mode à Event API pour une fiabilité maximale</p>
+            <!-- SLIDE 9: FIABILITÉ EVENT API -->
+            <section>
+                <h2>🔒 Migration Event API</h2>
+                <p style="font-size: 0.7em;">De Socket Mode à Event API pour une fiabilité maximale</p>
 
-        <table style="font-size: 0.6em; margin-top: 30px;">
-          <thead>
-            <tr>
-              <th>Critère</th>
-              <th>Socket Mode</th>
-              <th>Event API</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td><strong>Fiabilité</strong></td><td class="warning">~95-99%</td><td class="success">100%</td></tr>
-            <tr><td><strong>Retry automatique</strong></td><td class="danger">❌ Non</td><td class="success">✅ Oui (Slack)</td></tr>
-            <tr><td><strong>IP publique</strong></td><td class="success">❌ Non requise</td><td class="warning">✅ Requise</td></tr>
-            <tr><td><strong>SSL</strong></td><td>Non requis</td><td class="success">✅ Requis</td></tr>
-            <tr><td><strong>Broken pipe errors</strong></td><td class="danger">⚠️ Fréquents</td><td class="success">✅ Éliminés</td></tr>
-          </tbody>
-        </table>
+                <table style="font-size: 0.6em; margin-top: 30px;">
+                    <thead>
+                        <tr>
+                            <th>Critère</th>
+                            <th>Socket Mode</th>
+                            <th>Event API</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Fiabilité</strong></td>
+                            <td class="warning">~95-99%</td>
+                            <td class="success">100%</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Retry automatique</strong></td>
+                            <td class="danger">❌ Non</td>
+                            <td class="success">✅ Oui (Slack)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>IP publique</strong></td>
+                            <td class="success">❌ Non requise</td>
+                            <td class="warning">✅ Requise</td>
+                        </tr>
+                        <tr>
+                            <td><strong>SSL</strong></td>
+                            <td>Non requis</td>
+                            <td class="success">✅ Requis</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Broken pipe errors</strong></td>
+                            <td class="danger">⚠️ Fréquents</td>
+                            <td class="success">✅ Éliminés</td>
+                        </tr>
+                    </tbody>
+                </table>
 
-        <div class="feature-box" style="margin-top: 30px; font-size: 0.65em;">
-          <strong>Infrastructure actuelle :</strong><br>
-          <code>Internet → Nginx (443, SSL) → Gunicorn (5000) → Flask → app_webhook.py</code>
+                <div class="feature-box" style="margin-top: 30px; font-size: 0.65em;">
+                    <strong>Infrastructure actuelle :</strong><br>
+                    <code>Internet → Nginx (443, SSL) → Gunicorn (5000) → Flask → app_webhook.py</code>
+                </div>
+            </section>
+
+            <!-- SLIDE 10: WHAT'S NEXT - COURT TERME -->
+            <section>
+                <h2>🚀 What's Next - Court Terme (Q4 2024)</h2>
+
+                <div class="roadmap-section" style="margin-top: 20px;">
+                    <h3 style="font-size: 0.8em; color: #42affa;">1️⃣ Metabase MCP Integration</h3>
+                    <ul style="font-size: 0.6em; text-align: left;">
+                        <li><strong>Model Context Protocol (MCP)</strong> : nouveau standard Anthropic pour connecter des outils</li>
+                        <li>Intégration native avec Metabase pour accès aux dashboards existants</li>
+                        <li>Franck peut lire et analyser les dashboards Metabase directement</li>
+                        <li>Synchronisation automatique des métriques business</li>
+                    </ul>
+                </div>
+
+                <div class="roadmap-section">
+                    <h3 style="font-size: 0.8em; color: #42affa;">2️⃣ Salesforce pour les Sales</h3>
+                    <ul style="font-size: 0.6em; text-align: left;">
+                        <li>Connexion API Salesforce pour pipeline de ventes</li>
+                        <li>Requêtes sur opportunités, leads, et conversions</li>
+                        <li>Prévisions de CA basées sur le pipeline</li>
+                        <li>Intégration CRM enrichie avec données transactionnelles</li>
+                    </ul>
+                </div>
+
+                <div class="roadmap-section">
+                    <h3 style="font-size: 0.8em; color: #42affa;">3️⃣ Vibecoding avec Claude</h3>
+                    <ul style="font-size: 0.6em; text-align: left;">
+                        <li><strong>Dev assisté par IA</strong> : Franck aide au développement de nouvelles features</li>
+                        <li>Génération de code Python pour nouveaux outils</li>
+                        <li>Debugging automatique et suggestions d'optimisation</li>
+                        <li>Évolution continue grâce au feedback utilisateurs</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 11: WHAT'S NEXT - MOYEN TERME -->
+            <section>
+                <h2>🚀 What's Next - Moyen Terme (Q1 2025)</h2>
+
+                <div class="roadmap-section" style="margin-top: 20px;">
+                    <h3 style="font-size: 0.8em; color: #f39c12;">4️⃣ Enrichissement de la Connaissance Business</h3>
+                    <ul style="font-size: 0.6em; text-align: left;">
+                        <li><strong>Contexte business enrichi</strong> : documentation produits, stratégies, KPIs métiers</li>
+                        <li>Compréhension profonde du business model (box beauté, abonnements, ...)</li>
+                        <li>Connaissance des cycles saisonniers, campagnes marketing, événements</li>
+                        <li>Glossaire métier automatiquement enrichi via interactions</li>
+                        <li>Apprentissage continu des patterns business spécifiques</li>
+                    </ul>
+                </div>
+
+                <div class="roadmap-section">
+                    <h3 style="font-size: 0.8em; color: #f39c12;">5️⃣ Multi-Agent System</h3>
+                    <ul style="font-size: 0.6em; text-align: left;">
+                        <li>Agent spécialisé "Finance" (focus CA/marges/rentabilité)</li>
+                        <li>Agent "Marketing" (focus acquisition/conversion/retention)</li>
+                        <li>Agent "Ops" (focus logistique/satisfaction/performance)</li>
+                        <li>Agent "Sales" (focus pipeline/opportunités/prévisions)</li>
+                        <li>Routing intelligent selon la question posée</li>
+                    </ul>
+                </div>
+
+                <div class="roadmap-section">
+                    <h3 style="font-size: 0.8em; color: #f39c12;">6️⃣ Analyses Prédictives</h3>
+                    <ul style="font-size: 0.6em; text-align: left;">
+                        <li>Prévisions de churn via ML</li>
+                        <li>Détection d'anomalies automatique sur les métriques clés</li>
+                        <li>Recommandations proactives (Claude analyse des tendances)</li>
+                        <li>Alertes intelligentes sur variations anormales</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 12: WHAT'S NEXT - LONG TERME -->
+            <section>
+                <h2>🚀 What's Next - Long Terme (2025+)</h2>
+
+                <div class="roadmap-section" style="margin-top: 30px;">
+                    <h3 style="font-size: 0.8em; color: #9b59b6;">7️⃣ Autonomie Complète</h3>
+                    <ul style="font-size: 0.65em; text-align: left;">
+                        <li>Auto-génération de dashboards Notion</li>
+                        <li>Rapports hebdomadaires personnalisés par équipe</li>
+                        <li>Détection proactive de problèmes business</li>
+                        <li>Self-service pour créer de nouveaux outils</li>
+                    </ul>
+                </div>
+
+                <div class="roadmap-section">
+                    <h3 style="font-size: 0.8em; color: #9b59b6;">8️⃣ Scalabilité</h3>
+                    <ul style="font-size: 0.65em; text-align: left;">
+                        <li>Support multi-workspace Slack</li>
+                        <li>Architecture micro-services (FastAPI)</li>
+                        <li>Cache Redis pour résultats fréquents</li>
+                        <li>Queue système (Celery) pour requêtes longues</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SLIDE 13: QUESTIONS -->
+            <section>
+                <h2>💬 Questions ?</h2>
+
+                <div style="margin-top: 50px; font-size: 0.75em; text-align: left; padding: 0 80px;">
+                    <p><strong class="highlight">Contact :</strong> Équipe Data Blissim</p>
+                    <p><strong class="highlight">Repo :</strong> <a href="https://github.com/matblissim/MAEL.IA">github.com/matblissim/MAEL.IA</a></p>
+                    <p><strong class="highlight">Docs :</strong> ARCHITECTURE.md, MIGRATION_EVENT_API.md, MORNING_SUMMARY.md</p>
+                </div>
+
+                <div class="feature-box" style="margin-top: 50px; font-size: 0.7em;">
+                    <strong>🎯 Essayez maintenant dans Slack :</strong><br><br>
+                    <code>@Franck Quel est le CA d'hier ?</code><br>
+                    <code>@Franck Analyse le taux de churn de septembre</code><br>
+                    <code>@Franck Compare les acquisitions FR vs ES ce mois</code>
+                </div>
+
+                <p style="margin-top: 50px; font-size: 1.5em;">
+                    Merci ! 🙏
+                </p>
+            </section>
+
         </div>
-      </section>
-
-      <!-- SLIDE 10: ROADMAP COURT TERME -->
-      <section>
-        <h2>🚀 What's Next - Court Terme (Q4 2024)</h2>
-
-        <div class="roadmap-section" style="margin-top: 20px;">
-          <h3 style="font-size: 0.8em; color: #42affa;">1️⃣ Metabase MCP Integration</h3>
-          <ul style="font-size: 0.6em; text-align: left;">
-            <li><strong>Model Context Protocol (MCP)</strong> : nouveau standard Anthropic pour connecter des outils</li>
-            <li>Intégration native avec Metabase pour accès aux dashboards existants</li>
-            <li>Franck peut lire et analyser les dashboards Metabase directement</li>
-            <li>Synchronisation automatique des métriques business</li>
-          </ul>
-        </div>
-
-        <div class="roadmap-section">
-          <h3 style="font-size: 0.8em; color: #42affa;">2️⃣ Salesforce pour les Sales</h3>
-          <ul style="font-size: 0.6em; text-align: left;">
-            <li>Connexion API Salesforce pour pipeline de ventes</li>
-            <li>Requêtes sur opportunités, leads, et conversions</li>
-            <li>Prévisions de CA basées sur le pipeline</li>
-            <li>Intégration CRM enrichie avec données transactionnelles</li>
-          </ul>
-        </div>
-
-        <div class="roadmap-section">
-          <h3 style="font-size: 0.8em; color: #42affa;">3️⃣ Vibecoding avec Claude</h3>
-          <ul style="font-size: 0.6em; text-align: left;">
-            <li><strong>Dev assisté par IA</strong> : Franck aide au développement de nouvelles features</li>
-            <li>Génération de code Python pour nouveaux outils</li>
-            <li>Debugging automatique et suggestions d'optimisation</li>
-            <li>Évolution continue grâce au feedback utilisateurs</li>
-          </ul>
-        </div>
-      </section>
-
-      <!-- SLIDE 11: ROADMAP MOYEN TERME -->
-      <section>
-        <h2>🚀 What's Next - Moyen Terme (Q1 2025)</h2>
-
-        <div class="roadmap-section" style="margin-top: 20px;">
-          <h3 style="font-size: 0.8em; color: #f39c12;">4️⃣ Enrichissement de la Connaissance Business</h3>
-          <ul style="font-size: 0.6em; text-align: left;">
-            <li><strong>Contexte business enrichi</strong> : documentation produits, stratégies, KPIs métiers</li>
-            <li>Compréhension profonde du business model (box beauté, abonnements, ...)</li>
-            <li>Connaissance des cycles saisonniers, campagnes marketing, événements</li>
-            <li>Glossaire métier automatiquement enrichi via interactions</li>
-            <li>Apprentissage continu des patterns business spécifiques</li>
-          </ul>
-        </div>
-
-        <div class="roadmap-section">
-          <h3 style="font-size: 0.8em; color: #f39c12;">5️⃣ Multi-Agent System</h3>
-          <ul style="font-size: 0.6em; text-align: left;">
-            <li>Agent spécialisé "Finance" (focus CA/marges/rentabilité)</li>
-            <li>Agent "Marketing" (focus acquisition/conversion/retention)</li>
-            <li>Agent "Ops" (focus logistique/satisfaction/performance)</li>
-            <li>Agent "Sales" (focus pipeline/opportunités/prévisions)</li>
-            <li>Routing intelligent selon la question posée</li>
-          </ul>
-        </div>
-
-        <div class="roadmap-section">
-          <h3 style="font-size: 0.8em; color: #f39c12;">6️⃣ Analyses Prédictives</h3>
-          <ul style="font-size: 0.6em; text-align: left;">
-            <li>Prévisions de churn via ML</li>
-            <li>Détection d'anomalies automatique sur les métriques clés</li>
-            <li>Recommandations proactives (Claude analyse des tendances)</li>
-            <li>Alertes intelligentes sur variations anormales</li>
-          </ul>
-        </div>
-      </section>
-
-      <!-- SLIDE 12: ROADMAP LONG TERME -->
-      <section>
-        <h2>🚀 What's Next - Long Terme (2025+)</h2>
-
-        <div class="roadmap-section" style="margin-top: 30px;">
-          <h3 style="font-size: 0.8em; color: #9b59b6;">7️⃣ Autonomie Complète</h3>
-          <ul style="font-size: 0.65em; text-align: left;">
-            <li>Auto-génération de dashboards Notion</li>
-            <li>Rapports hebdomadaires personnalisés par équipe</li>
-            <li>Détection proactive de problèmes business</li>
-            <li>Self-service pour créer de nouveaux outils</li>
-          </ul>
-        </div>
-
-        <div class="roadmap-section">
-          <h3 style="font-size: 0.8em; color: #9b59b6;">8️⃣ Scalabilité</h3>
-          <ul style="font-size: 0.65em; text-align: left;">
-            <li>Support multi-workspace Slack</li>
-            <li>Architecture micro-services (FastAPI)</li>
-            <li>Cache Redis pour résultats fréquents</li>
-            <li>Queue système (Celery) pour requêtes longues</li>
-          </ul>
-        </div>
-      </section>
-
-      <!-- SLIDE 13: QUESTIONS -->
-      <section>
-        <h2>💬 Questions ?</h2>
-
-        <div style="margin-top: 50px; font-size: 0.75em; text-align: left; padding: 0 80px;">
-          <p><strong class="highlight">Contact :</strong> Équipe Data Blissim</p>
-          <p><strong class="highlight">Repo :</strong> <a href="https://github.com/matblissim/MAEL.IA">github.com/matblissim/MAEL.IA</a></p>
-          <p><strong class="highlight">Docs :</strong> ARCHITECTURE.md, MIGRATION_EVENT_API.md, MORNING_SUMMARY.md</p>
-        </div>
-
-        <div class="feature-box" style="margin-top: 50px; font-size: 0.7em;">
-          <strong>🎯 Essayez maintenant dans Slack :</strong><br><br>
-          <code>@Franck Quel est le CA d'hier ?</code><br>
-          <code>@Franck Analyse le taux de churn de septembre</code><br>
-          <code>@Franck Compare les acquisitions FR vs ES ce mois</code>
-        </div>
-
-        <p style="margin-top: 50px; font-size: 1.5em;">
-          Merci ! 🙏
-        </p>
-      </section>
-
     </div>
-  </div>
 
-  <!-- Reveal.js -->
-  <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.js"></script>
-  <script>
-    Reveal.initialize({
-      hash: true,
-      transition: 'slide',
-      transitionSpeed: 'default',
-      backgroundTransition: 'fade',
-      width: 1280,
-      height: 720,
-      margin: 0.1,
-      minScale: 0.2,
-      maxScale: 2.0,
-      controls: true,
-      progress: true,
-      center: true,
-      slideNumber: 'c/t',
-      keyboard: true,
-      overview: true,
-      touch: true,
-      loop: false,
-      rtl: false,
-      fragments: true,
-      help: true,
-      showNotes: false,
-      autoPlayMedia: null,
-      preloadIframes: null,
-      mouseWheel: false,
-      hideInactiveCursor: true,
-      hideCursorTime: 5000
-    });
-  </script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            transition: 'slide',
+            transitionSpeed: 'default',
+            backgroundTransition: 'fade',
+            width: 1280,
+            height: 720,
+            margin: 0.1,
+            minScale: 0.2,
+            maxScale: 2.0,
+            controls: true,
+            progress: true,
+            center: true,
+            slideNumber: 'c/t',
+            keyboard: true,
+            overview: true,
+            touch: true,
+            loop: false,
+            rtl: false,
+            fragments: true,
+            help: true,
+            showNotes: false,
+            autoPlayMedia: null,
+            preloadIframes: null,
+            mouseWheel: false,
+            hideInactiveCursor: true,
+            hideCursorTime: 5000
+        });
+    </script>
 </body>
 </html>
