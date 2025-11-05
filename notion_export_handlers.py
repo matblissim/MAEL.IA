@@ -22,8 +22,15 @@ def create_message_blocks_with_notion_button(text: str, thread_ts: str, channel:
         channel: L'ID du canal Slack
 
     Returns:
-        Liste de blocks Slack compatibles avec Block Kit
+        Liste de blocks Slack compatibles avec Block Kit, ou None si le texte est trop long
     """
+    # Slack limite les blocks de texte à 3000 caractères
+    MAX_BLOCK_TEXT_LENGTH = 2900  # Garder une marge de sécurité
+
+    # Si le texte est trop long, on ne peut pas utiliser les blocks
+    if len(text) > MAX_BLOCK_TEXT_LENGTH:
+        return None
+
     return [
         {
             "type": "section",

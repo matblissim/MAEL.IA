@@ -249,15 +249,24 @@ def setup_handlers(context: str):
                 if queries:
                     answer += format_sql_queries(queries)
 
-            # Créer les blocks avec le bouton Notion
+            # Créer les blocks avec les boutons Notion et Stop
             blocks = create_message_blocks_with_notion_button(f"🤖 {answer}", thread_ts, channel)
 
-            client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text=f"🤖 {answer}",  # Fallback text
-                blocks=blocks
-            )
+            # Si le texte est trop long pour les blocks, envoyer sans blocks
+            if blocks is None:
+                logger.warning(f"⚠️ Message trop long ({len(answer)} chars), envoi sans boutons")
+                client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=f"🤖 {answer}"
+                )
+            else:
+                client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=f"🤖 {answer}",  # Fallback text
+                    blocks=blocks
+                )
             ACTIVE_THREADS.add(thread_ts)
             logger.info("✅ Réponse envoyée (thread ajouté aux actifs)")
 
@@ -320,15 +329,24 @@ def setup_handlers(context: str):
                 if queries:
                     answer += format_sql_queries(queries)
 
-            # Créer les blocks avec le bouton Notion
+            # Créer les blocks avec les boutons Notion et Stop
             blocks = create_message_blocks_with_notion_button(f"💬 {answer}", thread_ts, channel)
 
-            client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text=f"💬 {answer}",  # Fallback text
-                blocks=blocks
-            )
+            # Si le texte est trop long pour les blocks, envoyer sans blocks
+            if blocks is None:
+                logger.warning(f"⚠️ Message trop long ({len(answer)} chars), envoi sans boutons")
+                client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=f"💬 {answer}"
+                )
+            else:
+                client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=f"💬 {answer}",  # Fallback text
+                    blocks=blocks
+                )
             logger.info("✅ Réponse envoyée dans le thread")
         except Exception as e:
             logger.exception(f"❌ Erreur on_message: {e}")
