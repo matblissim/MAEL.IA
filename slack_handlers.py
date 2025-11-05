@@ -7,6 +7,7 @@ from typing import Optional
 from config import app
 from claude_client import ask_claude, format_sql_queries
 from thread_memory import get_last_queries
+from notion_export_handlers import create_message_blocks_with_notion_button
 
 
 # ---------------------------------------
@@ -83,6 +84,79 @@ def setup_handlers(context: str):
     """Configure les handlers Slack avec le contexte chargé."""
     global CURRENT_CONTEXT
     CURRENT_CONTEXT = context  # Initialiser le contexte
+
+    @app.event("reaction_added")
+    def on_reaction_added(body, event, client, logger):
+        """Gère les réactions ajoutées aux messages."""
+        try:
+            reaction = event.get("reaction", "")
+            user = event.get("user", "")
+            item = event.get("item", {})
+            channel = item.get("channel", "")
+            message_ts = item.get("ts", "")
+
+            # Vérifier si c'est une croix rouge (❌)
+            if reaction not in ["x", "X", "❌"]:
+                return
+
+            logger.info(f"❌ Réaction croix rouge détectée sur message {message_ts[:10]}...")
+
+            # Récupérer le message pour vérifier si c'est un message de Franck
+            try:
+                result = client.conversations_history(
+                    channel=channel,
+                    latest=message_ts,
+                    inclusive=True,
+                    limit=1
+                )
+
+                if not result.get("messages"):
+                    return
+
+                message = result["messages"][0]
+                message_user = message.get("user", "")
+                bot_user_id = get_bot_user_id()
+
+                # Vérifier que c'est bien un message de Franck
+                if message_user != bot_user_id:
+                    logger.info(f"⏭️ Message pas de Franck, ignoré")
+                    return
+
+                # Récupérer le thread_ts
+                thread_ts = message.get("thread_ts", message_ts)
+
+                # Supprimer le thread des threads actifs
+                if thread_ts in ACTIVE_THREADS:
+                    ACTIVE_THREADS.remove(thread_ts)
+                    logger.info(f"🗑️ Thread {thread_ts[:10]}... supprimé des threads actifs")
+
+                # Nettoyer la mémoire du thread
+                from thread_memory import THREAD_MEMORY, LAST_QUERIES
+                if thread_ts in THREAD_MEMORY:
+                    del THREAD_MEMORY[thread_ts]
+                    logger.info(f"🧹 Mémoire du thread {thread_ts[:10]}... effacée")
+
+                if thread_ts in LAST_QUERIES:
+                    del LAST_QUERIES[thread_ts]
+                    logger.info(f"🧹 Requêtes du thread {thread_ts[:10]}... effacées")
+
+                # Ajouter une réaction de confirmation (poubelle)
+                try:
+                    client.reactions_add(
+                        channel=channel,
+                        timestamp=message_ts,
+                        name="wastebasket"
+                    )
+                    logger.info(f"✅ Thread oublié avec succès")
+                except Exception as reaction_error:
+                    logger.warning(f"⚠️ Impossible d'ajouter la réaction de confirmation : {reaction_error}")
+
+            except Exception as e:
+                logger.warning(f"⚠️ Erreur lors de la récupération du message : {e}")
+                return
+
+        except Exception as e:
+            logger.exception(f"❌ Erreur on_reaction_added: {e}")
 
     @app.event("app_mention")
     def on_app_mention(body, event, client, logger):
@@ -169,7 +243,15 @@ def setup_handlers(context: str):
                 if queries:
                     answer += format_sql_queries(queries)
 
-            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🤖 {answer}")
+            # Créer les blocks avec le bouton Notion
+            blocks = create_message_blocks_with_notion_button(f"🤖 {answer}", thread_ts, channel)
+
+            client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text=f"🤖 {answer}",  # Fallback text
+                blocks=blocks
+            )
             ACTIVE_THREADS.add(thread_ts)
             logger.info("✅ Réponse envoyée (thread ajouté aux actifs)")
 
@@ -232,7 +314,15 @@ def setup_handlers(context: str):
                 if queries:
                     answer += format_sql_queries(queries)
 
-            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"💬 {answer}")
+            # Créer les blocks avec le bouton Notion
+            blocks = create_message_blocks_with_notion_button(f"💬 {answer}", thread_ts, channel)
+
+            client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text=f"💬 {answer}",  # Fallback text
+                blocks=blocks
+            )
             logger.info("✅ Réponse envoyée dans le thread")
         except Exception as e:
             logger.exception(f"❌ Erreur on_message: {e}")
