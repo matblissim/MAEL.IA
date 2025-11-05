@@ -12,6 +12,14 @@ from notion_tools import (
     append_to_notion_context
 )
 from context_tools import append_to_context, read_context_section
+from asana_tools import (
+    create_task,
+    list_projects,
+    list_workspace_users,
+    search_user_by_email,
+    add_comment_to_task,
+    get_task
+)
 
 # ---------------------------------------
 # Tools (déclaration pour Anthropic)
@@ -264,6 +272,143 @@ TOOLS = [
             },
             "required": ["content"]
         }
+    },
+    {
+        "name": "create_asana_task",
+        "description": (
+            "Crée une tâche (ticket) dans un projet Asana. "
+            "À utiliser lorsque l'utilisateur demande de créer un ticket, bug, feature, ou tâche. "
+            "⚠️ IMPORTANT : Suis le workflow configuré dans la section 'WORKFLOW ASSISTANT ASANA' "
+            "du contexte pour savoir quelles questions poser et comment structurer le ticket."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string",
+                    "description": (
+                        "ID du projet Asana où créer la tâche. "
+                        "Utilise les IDs définis dans le workflow configuration (WORKFLOW ASSISTANT ASANA)."
+                    )
+                },
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "Titre clair et descriptif du ticket. "
+                        "Exemple : 'Bug: Graphiques dashboard ne chargent pas sur Safari' "
+                        "ou 'Feature: Filtre par prix sur le catalogue'"
+                    )
+                },
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "Description complète au format Markdown. "
+                        "Utilise le template approprié défini dans le workflow configuration."
+                    )
+                },
+                "assignee_gid": {
+                    "type": "string",
+                    "description": (
+                        "GID de l'utilisateur Asana à assigner (optionnel). "
+                        "Utilise search_asana_user_by_email pour trouver le GID si nécessaire."
+                    )
+                },
+                "due_date": {
+                    "type": "string",
+                    "description": "Date d'échéance au format YYYY-MM-DD (optionnel)."
+                },
+                "priority": {
+                    "type": "string",
+                    "description": "Priorité du ticket : High, Medium, ou Low. Défaut: Medium",
+                    "enum": ["High", "Medium", "Low"]
+                },
+                "tags": {
+                    "type": "array",
+                    "description": "Liste de tags pour catégoriser le ticket (optionnel).",
+                    "items": {"type": "string"}
+                }
+            },
+            "required": ["project_id", "title", "description"]
+        }
+    },
+    {
+        "name": "list_asana_projects",
+        "description": (
+            "Liste tous les projets disponibles dans le workspace Asana. "
+            "Utilise cet outil pour découvrir les projets existants et leurs IDs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "list_asana_users",
+        "description": (
+            "Liste tous les membres du workspace Asana. "
+            "Utilise cet outil pour découvrir les utilisateurs et leurs IDs/emails."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "search_asana_user_by_email",
+        "description": (
+            "Recherche un utilisateur Asana par son adresse email et retourne son GID. "
+            "Utilise cet outil avant d'assigner une tâche pour obtenir le GID de l'assigné."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "description": "Adresse email de l'utilisateur à rechercher."
+                }
+            },
+            "required": ["email"]
+        }
+    },
+    {
+        "name": "add_comment_to_asana_task",
+        "description": (
+            "Ajoute un commentaire à une tâche Asana existante. "
+            "Utilise cet outil pour enrichir un ticket avec des informations supplémentaires."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_gid": {
+                    "type": "string",
+                    "description": "GID de la tâche Asana."
+                },
+                "comment": {
+                    "type": "string",
+                    "description": "Le commentaire à ajouter."
+                }
+            },
+            "required": ["task_gid", "comment"]
+        }
+    },
+    {
+        "name": "get_asana_task",
+        "description": (
+            "Récupère les détails d'une tâche Asana. "
+            "Utilise cet outil pour vérifier le statut ou le contenu d'un ticket existant."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_gid": {
+                    "type": "string",
+                    "description": "GID de la tâche Asana à récupérer."
+                }
+            },
+            "required": ["task_gid"]
+        }
     }
 ]
 
@@ -344,6 +489,61 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
     elif tool_name == "append_to_notion_context":
         content = tool_input["content"]
         return append_to_notion_context(content)
+
+    elif tool_name == "create_asana_task":
+        project_id = tool_input.get("project_id")
+        title = tool_input.get("title")
+        description = tool_input.get("description")
+        assignee_gid = tool_input.get("assignee_gid")
+        due_date = tool_input.get("due_date")
+        priority = tool_input.get("priority", "Medium")
+        tags = tool_input.get("tags", [])
+
+        if not project_id or not title or not description:
+            return "❌ Erreur : project_id, title et description sont obligatoires"
+
+        return create_task(
+            project_id=project_id,
+            title=title,
+            description=description,
+            assignee_gid=assignee_gid,
+            due_date=due_date,
+            priority=priority,
+            tags=tags
+        )
+
+    elif tool_name == "list_asana_projects":
+        return list_projects()
+
+    elif tool_name == "list_asana_users":
+        return list_workspace_users()
+
+    elif tool_name == "search_asana_user_by_email":
+        email = tool_input.get("email")
+        if not email:
+            return "❌ Erreur : email est obligatoire"
+
+        user_gid = search_user_by_email(email)
+        if user_gid:
+            return f"✅ Utilisateur trouvé : GID = {user_gid}"
+        else:
+            return f"❌ Aucun utilisateur trouvé avec l'email : {email}"
+
+    elif tool_name == "add_comment_to_asana_task":
+        task_gid = tool_input.get("task_gid")
+        comment = tool_input.get("comment")
+
+        if not task_gid or not comment:
+            return "❌ Erreur : task_gid et comment sont obligatoires"
+
+        return add_comment_to_task(task_gid, comment)
+
+    elif tool_name == "get_asana_task":
+        task_gid = tool_input.get("task_gid")
+        if not task_gid:
+            return "❌ Erreur : task_gid est obligatoire"
+
+        return get_task(task_gid)
 
     else:
         return f"❌ Tool inconnu: {tool_name}"

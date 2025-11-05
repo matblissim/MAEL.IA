@@ -78,6 +78,7 @@ except Exception as e:
 notion_client = None
 NOTION_CONTEXT_PAGE_ID = os.getenv("NOTION_CONTEXT_PAGE_ID")
 NOTION_STORAGE_PAGE_ID = os.getenv("NOTION_STORAGE_PAGE_ID") or NOTION_CONTEXT_PAGE_ID
+NOTION_ASANA_WORKFLOW_PAGE_ID = os.getenv("NOTION_ASANA_WORKFLOW_PAGE_ID")  # Page config workflow Asana
 
 if os.getenv("NOTION_API_KEY"):
     try:
@@ -85,3 +86,8 @@ if os.getenv("NOTION_API_KEY"):
     except Exception as e:
         print(f"⚠️ Notion init error: {e}")
         notion_client = None
+
+# ---------- Asana (optionnel) ----------
+ASANA_ACCESS_TOKEN = os.getenv("ASANA_ACCESS_TOKEN")
+ASANA_WORKSPACE_ID = os.getenv("ASANA_WORKSPACE_ID")
+ASANA_DEFAULT_PROJECT_ID = os.getenv("ASANA_DEFAULT_PROJECT_ID")

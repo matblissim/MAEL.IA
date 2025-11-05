@@ -187,6 +187,16 @@ def setup_handlers(context: str):
             prompt = strip_own_mention(raw_text, bot_user_id) or "Dis bonjour (très bref) avec une micro-blague."
             logger.info(f"🔵 @mention reçue (event={event_id[:12] if event_id else 'NO_ID'}): {prompt[:200]!r}")
 
+            # Détection des mots-clés pour l'assistant Asana
+            asana_keywords = ["ticket:", "bug:", "feature:", "amélioration:", "tâche:"]
+            is_asana_request = any(prompt.lower().startswith(kw) for kw in asana_keywords)
+
+            if is_asana_request:
+                logger.info(f"🎫 Détection assistant Asana : {prompt[:100]}")
+                # Ajouter l'URL du thread Slack pour l'inclure dans le ticket
+                thread_url = f"https://blissim.slack.com/archives/{channel}/p{thread_ts.replace('.', '')}"
+                prompt = f"{prompt}\n\n[INTERNAL NOTE: Thread Slack URL = {thread_url}]"
+
             # Ajouter réaction 👀 pour indiquer que Franck s'en occupe
             try:
                 client.reactions_add(

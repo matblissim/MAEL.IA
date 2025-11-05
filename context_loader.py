@@ -92,4 +92,50 @@ def load_context() -> str:
                 parts.append(notion_content)
         except Exception as e:
             print(f"⚠️  Erreur chargement Notion: {e}")
+
+    # Charger le workflow Asana depuis Notion si configuré
+    asana_workflow = load_asana_workflow()
+    if asana_workflow:
+        parts.append("\n\n# WORKFLOW ASSISTANT ASANA\n\n")
+        parts.append(asana_workflow)
+
     return ''.join(parts)
+
+
+def load_asana_workflow() -> str:
+    """
+    Charge la configuration du workflow Asana depuis une page Notion.
+
+    Cette page définit:
+    - Les mots-clés de déclenchement (ticket, bug, feature, etc.)
+    - Les projets Asana disponibles et leurs IDs
+    - Les questions à poser selon le type de ticket
+    - Les règles de tagging automatique
+    - Les templates de description
+
+    Returns:
+        Le contenu markdown de la page de workflow, ou chaîne vide si non configuré
+    """
+    from notion_tools import read_notion_page
+    from config import notion_client, NOTION_ASANA_WORKFLOW_PAGE_ID
+
+    if not notion_client:
+        return ""
+
+    if not NOTION_ASANA_WORKFLOW_PAGE_ID:
+        # Pas de page workflow configurée, c'est OK (feature optionnelle)
+        return ""
+
+    try:
+        workflow_content = read_notion_page(NOTION_ASANA_WORKFLOW_PAGE_ID)
+
+        if workflow_content and not workflow_content.startswith("❌"):
+            print("✅ Workflow Asana chargé depuis Notion")
+            return workflow_content
+        else:
+            print("⚠️  Impossible de charger le workflow Asana depuis Notion")
+            return ""
+
+    except Exception as e:
+        print(f"⚠️  Erreur chargement workflow Asana: {e}")
+        return ""
