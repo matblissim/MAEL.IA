@@ -25,28 +25,36 @@ Quand un message Slack commence par un de ces mots-clés, Franck active l'assist
 
 Liste des projets disponibles pour créer des tickets :
 
-### Frontend
-- **Nom** : Frontend - Bugs & Features
-- **ID Asana** : `[METTRE_ID_ICI]`
-- **Mots-clés** : ui, affichage, interface, page, bouton, mobile, responsive, css
-- **Assigné par défaut** : `@marie` (optionnel)
-
-### Backend
-- **Nom** : Backend - APIs & Database
-- **ID Asana** : `[METTRE_ID_ICI]`
-- **Mots-clés** : api, endpoint, base de données, query, performance, serveur
-- **Assigné par défaut** : `@thomas` (optionnel)
-
-### DevOps
-- **Nom** : DevOps - Infrastructure
-- **ID Asana** : `[METTRE_ID_ICI]`
-- **Mots-clés** : déploiement, infra, ci/cd, docker, kubernetes, aws
-- **Assigné par défaut** : `@lucas` (optionnel)
-
-### Général
-- **Nom** : Backlog Technique
-- **ID Asana** : `[METTRE_ID_ICI]`
+### Projet par défaut (Blissim)
+- **Nom** : Votre projet de tickets
+- **ID Asana** : `1201618659585343`
+- **URL** : https://app.asana.com/1/1154194977629147/project/1201618659585343/list/1205140008181095
+- **Mots-clés** : ticket, bug, feature, amélioration, tâche (tous les types)
 - **Assigné par défaut** : Non assigné
+
+---
+
+**💡 Configuration multi-projets (optionnel)**
+
+Si vous avez plusieurs projets Asana, vous pouvez les configurer ici. Franck choisira automatiquement le bon projet selon les mots-clés du message.
+
+### Frontend (exemple)
+- **Nom** : Frontend - Bugs & Features
+- **ID Asana** : `[VOTRE_ID_FRONTEND]`
+- **Mots-clés** : ui, affichage, interface, page, bouton, mobile, responsive, css, react, vue
+- **Assigné par défaut** : Optionnel
+
+### Backend (exemple)
+- **Nom** : Backend - APIs & Database
+- **ID Asana** : `[VOTRE_ID_BACKEND]`
+- **Mots-clés** : api, endpoint, base de données, query, performance, serveur, python, django
+- **Assigné par défaut** : Optionnel
+
+### DevOps (exemple)
+- **Nom** : DevOps - Infrastructure
+- **ID Asana** : `[VOTRE_ID_DEVOPS]`
+- **Mots-clés** : déploiement, infra, ci/cd, docker, kubernetes, aws, gcp
+- **Assigné par défaut** : Optionnel
 
 ---
 
