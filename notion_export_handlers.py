@@ -3,6 +3,7 @@ Handlers pour l'export de conversations vers Notion.
 """
 
 import json
+import re
 from typing import Dict, Any, List
 from slack_bolt import App
 from config import app
@@ -13,7 +14,7 @@ import os
 
 def create_message_blocks_with_notion_button(text: str, thread_ts: str, channel: str) -> List[Dict[str, Any]]:
     """
-    Crée des blocks Slack avec le texte du message et un bouton élégant pour exporter vers Notion.
+    Crée des blocks Slack avec le texte du message et des boutons pour exporter vers Notion et arrêter le thread.
 
     Args:
         text: Le texte du message à afficher
@@ -47,6 +48,35 @@ def create_message_blocks_with_notion_button(text: str, thread_ts: str, channel:
                     "style": "primary",
                     "action_id": f"export_to_notion_{thread_ts}_{channel}",
                     "value": f"{thread_ts}|{channel}"
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🛑 Arrêter ce thread",
+                        "emoji": True
+                    },
+                    "style": "danger",
+                    "action_id": f"stop_thread_{thread_ts}_{channel}",
+                    "value": f"{thread_ts}|{channel}",
+                    "confirm": {
+                        "title": {
+                            "type": "plain_text",
+                            "text": "Arrêter ce thread ?"
+                        },
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "Franck arrêtera de répondre dans ce thread et oubliera la conversation. Cette action est irréversible."
+                        },
+                        "confirm": {
+                            "type": "plain_text",
+                            "text": "Oui, arrêter"
+                        },
+                        "deny": {
+                            "type": "plain_text",
+                            "text": "Annuler"
+                        }
+                    }
                 }
             ]
         }
@@ -116,8 +146,6 @@ def register_notion_export_handlers(app: App):
         """Handler pour les anciens boutons (compatibilité)."""
         ack()
         _handle_export(body, client, logger)
-
-    import re
 
     @app.action(re.compile(r"^export_to_notion_.*"))
     def handle_export_to_notion(ack, body, action, client, logger):
@@ -240,6 +268,74 @@ def register_notion_export_handlers(app: App):
                     channel=body.get("channel", {}).get("id", ""),
                     user=body.get("user", {}).get("id", ""),
                     text=f"❌ Erreur lors de l'export : {str(e)[:200]}"
+                )
+            except:
+                pass
+
+    @app.action(re.compile(r"^stop_thread_.*"))
+    def handle_stop_thread(ack, body, action, client, logger):
+        """Handler pour arrêter un thread via bouton."""
+        ack()
+
+        try:
+            # Extraire thread_ts et channel depuis la value du bouton
+            value = action.get("value", "")
+            if "|" in value:
+                thread_ts, channel = value.split("|", 1)
+            else:
+                # Fallback: extraire depuis l'action_id
+                action_id = action.get("action_id", "")
+                parts = action_id.replace("stop_thread_", "").split("_", 1)
+                if len(parts) >= 2:
+                    thread_ts, channel = parts[0], parts[1]
+                else:
+                    raise ValueError("Impossible d'extraire thread_ts et channel")
+
+            user_id = body["user"]["id"]
+
+            logger.info(f"🛑 Arrêt du thread {thread_ts[:10]}... demandé par user {user_id}")
+
+            # Importer les modules nécessaires
+            from slack_handlers import ACTIVE_THREADS
+            from thread_memory import THREAD_MEMORY, LAST_QUERIES
+
+            # Supprimer le thread des threads actifs
+            if thread_ts in ACTIVE_THREADS:
+                ACTIVE_THREADS.remove(thread_ts)
+                logger.info(f"🗑️ Thread {thread_ts[:10]}... supprimé des threads actifs")
+
+            # Nettoyer la mémoire du thread
+            if thread_ts in THREAD_MEMORY:
+                del THREAD_MEMORY[thread_ts]
+                logger.info(f"🧹 Mémoire du thread {thread_ts[:10]}... effacée")
+
+            if thread_ts in LAST_QUERIES:
+                del LAST_QUERIES[thread_ts]
+                logger.info(f"🧹 Requêtes du thread {thread_ts[:10]}... effacées")
+
+            # Envoyer confirmation éphémère
+            client.chat_postEphemeral(
+                channel=channel,
+                user=user_id,
+                text="✅ Thread arrêté avec succès. Franck ne répondra plus aux messages de cette conversation."
+            )
+
+            # Envoyer message dans le thread aussi
+            client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="🛑 Ce thread a été arrêté. Je ne répondrai plus aux messages ici."
+            )
+
+            logger.info(f"✅ Thread {thread_ts[:10]}... arrêté avec succès")
+
+        except Exception as e:
+            logger.exception(f"❌ Erreur lors de l'arrêt du thread : {e}")
+            try:
+                client.chat_postEphemeral(
+                    channel=body.get("channel", {}).get("id", ""),
+                    user=body.get("user", {}).get("id", ""),
+                    text=f"❌ Erreur lors de l'arrêt du thread : {str(e)[:200]}"
                 )
             except:
                 pass
