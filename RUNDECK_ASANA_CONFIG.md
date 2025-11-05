@@ -10,14 +10,14 @@ Ajoutez ces 4 nouvelles variables :
 ASANA_ACCESS_TOKEN = <votre_token_asana>
 ASANA_WORKSPACE_ID = 1154194977629147
 ASANA_DEFAULT_PROJECT_ID = 1201618659585343
-NOTION_ASANA_WORKFLOW_PAGE_ID = <page_id_notion>  # optionnel
+NOTION_ASANA_WORKFLOW_PAGE_ID = 2a24d42a385b80908e68d47da08001ae
 ```
 
 **Important** :
 - ✅ `ASANA_WORKSPACE_ID` = `1154194977629147` (Workspace Blissim)
 - ✅ `ASANA_DEFAULT_PROJECT_ID` = `1201618659585343` (Votre projet par défaut)
+- ✅ `NOTION_ASANA_WORKFLOW_PAGE_ID` = `2a24d42a385b80908e68d47da08001ae` (Page workflow)
 - ⚠️ `ASANA_ACCESS_TOKEN` : À créer sur https://app.asana.com/0/my-apps
-- ⚠️ `NOTION_ASANA_WORKFLOW_PAGE_ID` : Optionnel (pour workflow configurable)
 
 ---
 
