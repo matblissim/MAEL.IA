@@ -2,6 +2,7 @@
 Handlers pour l'export de conversations vers Notion.
 """
 
+import json
 from typing import Dict, Any, List
 from slack_bolt import App
 from config import app
@@ -176,15 +177,39 @@ def register_notion_export_handlers(app: App):
                         title = first_content[:50] + ("..." if len(first_content) > 50 else "")
 
             # Créer la page
-            result = create_notion_page(
+            result_str = create_notion_page(
                 parent_id=context_page_id,
                 title=f"💬 {title}",
                 content=content
             )
 
-            if result and "id" in result:
-                page_url = f"https://notion.so/{result['id'].replace('-', '')}"
+            # Vérifier si c'est une erreur
+            if result_str.startswith("❌"):
+                client.chat_postEphemeral(
+                    channel=channel,
+                    user=user_id,
+                    text=f"❌ {result_str}"
+                )
+                logger.error(f"❌ Échec de la création de page Notion : {result_str}")
+                return
 
+            # Parser le résultat JSON
+            try:
+                result = json.loads(result_str)
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Impossible de parser le résultat Notion : {e}")
+                client.chat_postEphemeral(
+                    channel=channel,
+                    user=user_id,
+                    text="❌ Erreur lors du traitement de la réponse Notion."
+                )
+                return
+
+            # Extraire l'URL de la page créée
+            page_url = result.get("url", "")
+            page_id = result.get("page_id", "")
+
+            if page_url and page_id:
                 # Envoyer confirmation éphémère
                 client.chat_postEphemeral(
                     channel=channel,
@@ -204,9 +229,9 @@ def register_notion_export_handlers(app: App):
                 client.chat_postEphemeral(
                     channel=channel,
                     user=user_id,
-                    text="❌ Erreur lors de la création de la page Notion."
+                    text="❌ Erreur lors de la création de la page Notion (URL manquante)."
                 )
-                logger.error("❌ Échec de la création de page Notion")
+                logger.error(f"❌ Réponse Notion invalide : {result}")
 
         except Exception as e:
             logger.exception(f"❌ Erreur lors de l'export vers Notion : {e}")
