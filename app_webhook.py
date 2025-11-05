@@ -10,6 +10,7 @@ from context_loader import load_context
 from slack_handlers import setup_handlers
 from morning_summary import send_morning_summary
 from morning_summary_handlers import register_morning_summary_handlers
+from notion_export_handlers import register_notion_export_handlers
 
 
 def create_app():
@@ -64,6 +65,9 @@ def create_app():
 
     # Enregistrement des handlers interactifs pour le morning summary
     register_morning_summary_handlers(app)
+
+    # Enregistrement des handlers pour l'export vers Notion
+    register_notion_export_handlers(app)
 
     print("🧠 Mémoire par thread active")
     print("🧾 Logs de coût Anthropic activés (console)")
