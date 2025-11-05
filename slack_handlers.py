@@ -89,14 +89,20 @@ def setup_handlers(context: str):
     def on_reaction_added(body, event, client, logger):
         """Gère les réactions ajoutées aux messages."""
         try:
+            # LOG DEBUG : voir tous les events qui arrivent
+            logger.info(f"🔔 EVENT reaction_added reçu : {event}")
+
             reaction = event.get("reaction", "")
             user = event.get("user", "")
             item = event.get("item", {})
             channel = item.get("channel", "")
             message_ts = item.get("ts", "")
 
+            logger.info(f"🔍 Réaction détectée : '{reaction}' par user {user} sur message {message_ts[:10] if message_ts else 'NO_TS'}...")
+
             # Vérifier si c'est une croix rouge (❌)
             if reaction not in ["x", "X", "❌"]:
+                logger.info(f"⏭️ Réaction '{reaction}' ignorée (pas une croix rouge)")
                 return
 
             logger.info(f"❌ Réaction croix rouge détectée sur message {message_ts[:10]}...")
