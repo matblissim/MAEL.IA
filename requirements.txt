@@ -1,5 +1,7 @@
 mcp
 google-cloud-bigquery
+gspread>=5.12.0
+google-auth>=2.23.0
 python-dotenv
 python-dateutil
 slack-bolt>=1.18.0

@@ -85,3 +85,14 @@ if os.getenv("NOTION_API_KEY"):
     except Exception as e:
         print(f"⚠️ Notion init error: {e}")
         notion_client = None
+
+# ---------- Google Sheets (optionnel) ----------
+sheets_client = None
+
+try:
+    from google_sheets_tools import GoogleSheetsClient
+    sheets_client = GoogleSheetsClient()
+    print("✅ Google Sheets client initialisé")
+except Exception as e:
+    print(f"⚠️ Google Sheets init error: {e}")
+    sheets_client = None

@@ -12,6 +12,7 @@ from notion_tools import (
     append_to_notion_context
 )
 from context_tools import append_to_context, read_context_section
+from allocation_workflow import run_allocation_workflow
 
 # ---------------------------------------
 # Tools (déclaration pour Anthropic)
@@ -264,6 +265,47 @@ TOOLS = [
             },
             "required": ["content"]
         }
+    },
+    {
+        "name": "run_allocation",
+        "description": (
+            "Exécute le workflow complet d'allocation BigQuery -> Google Sheets. "
+            "Appelle la procédure user_compo_matrix, récupère les matrices SKU et Compo, "
+            "puis les écrit dans le Google Sheet spécifié. "
+            "Types d'allocation disponibles : "
+            "- LAST_MONTH : Tests d'allocation sur la campagne précédente "
+            "- DAILIES : Allouer les dailies chaque matin + forthcomings si fait après ouverture "
+            "- MONTHLY : Allocation mensuelle de la prochaine campagne + forthcoming avant ouverture "
+            "- LAST_DAILIES : Dernières dailies du mois alors que la nouvelle campagne a ouvert"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "country": {
+                    "type": "string",
+                    "description": "Code pays à 2 lettres (ex: 'FR', 'ES', 'DE', 'IT', 'BE', 'NL')"
+                },
+                "campaign_date": {
+                    "type": "string",
+                    "description": "Date de la campagne au format 'YYYY-MM-DD' (ex: '2025-11-01')"
+                },
+                "alloc_type": {
+                    "type": "string",
+                    "enum": ["LAST_MONTH", "DAILIES", "MONTHLY", "LAST_DAILIES"],
+                    "description": "Type d'allocation à effectuer"
+                },
+                "gsheet_url": {
+                    "type": "string",
+                    "description": "URL complète du Google Sheet de destination"
+                },
+                "start_column_part2": {
+                    "type": "string",
+                    "description": "Colonne de départ pour la partie 2 (Compo Matrix). Défaut: 'M'",
+                    "default": "M"
+                }
+            },
+            "required": ["country", "campaign_date", "alloc_type", "gsheet_url"]
+        }
     }
 ]
 
@@ -344,6 +386,43 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any], thread_ts: str) -> 
     elif tool_name == "append_to_notion_context":
         content = tool_input["content"]
         return append_to_notion_context(content)
+
+    elif tool_name == "run_allocation":
+        country = tool_input.get("country")
+        campaign_date = tool_input.get("campaign_date")
+        alloc_type = tool_input.get("alloc_type")
+        gsheet_url = tool_input.get("gsheet_url")
+        start_column_part2 = tool_input.get("start_column_part2", "M")
+
+        if not all([country, campaign_date, alloc_type, gsheet_url]):
+            return "❌ Erreur : Paramètres manquants (country, campaign_date, alloc_type, gsheet_url requis)"
+
+        try:
+            import json
+            result = run_allocation_workflow(
+                country=country,
+                campaign_date=campaign_date,
+                alloc_type=alloc_type,
+                gsheet_url=gsheet_url,
+                start_column_part2=start_column_part2
+            )
+
+            if result['success']:
+                sku_rows = result['steps']['sku_matrix']['rows_count']
+                compo_rows = result['steps']['compo_matrix']['rows_count']
+                return (
+                    f"✅ Allocation {alloc_type} pour {country} ({campaign_date}) terminée avec succès !\n\n"
+                    f"📊 **Résultats :**\n"
+                    f"- SKU Matrix : {sku_rows} lignes écrites (colonne A)\n"
+                    f"- Compo Matrix : {compo_rows} lignes écrites (colonne {start_column_part2})\n"
+                    f"- Sheet : {gsheet_url}\n\n"
+                    f"🔗 Les données sont disponibles dans le Google Sheet."
+                )
+            else:
+                return f"❌ Erreur lors de l'allocation : {result.get('error', 'Erreur inconnue')}"
+
+        except Exception as e:
+            return f"❌ Erreur lors de l'exécution de l'allocation : {str(e)}"
 
     else:
         return f"❌ Tool inconnu: {tool_name}"
